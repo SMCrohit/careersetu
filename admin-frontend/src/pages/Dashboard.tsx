@@ -15,11 +15,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [filter]);
 
   const fetchStats = async () => {
     try {
-      const res = await api.get('/dashboard/stats');
+      setLoading(true);
+      const res = await api.get(`/dashboard/stats?filter=${filter}`);
       setStats(res.data);
     } catch (error) {
       showToast("Failed to load dashboard stats", "error");

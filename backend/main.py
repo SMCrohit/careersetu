@@ -265,34 +265,64 @@ def get_activity_logs(db: Session = Depends(get_db), admin: str = Depends(auth.g
 
 # Dashboard Stats
 @app.get("/api/dashboard/stats")
-def get_dashboard_stats(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     total_users = db.query(models.User).filter(models.User.is_active == True).count()
     active_jobs = db.query(models.Job).filter(models.Job.is_active == True).count()
     tests_taken = db.query(models.TestAttempt).count()
     appointments = db.query(models.DoctorAppointment).count()
     
-    # Generate simple last 7 days chart data
+    # Generate chart data based on filter
     chart_data = []
     today = date.today()
-    for i in range(6, -1, -1):
-        target_date = today - timedelta(days=i)
-        day_name = target_date.strftime("%a") # Mon, Tue, etc.
-        
-        # Count users created on this date
-        users_count = db.query(models.User).filter(
-            func.date(models.User.created_datetime) == target_date
-        ).count()
-        
-        # Count jobs created on this date
-        jobs_count = db.query(models.Job).filter(
-            func.date(models.Job.created_datetime) == target_date
-        ).count()
-        
-        chart_data.append({
-            "name": day_name,
-            "users": users_count,
-            "jobs": jobs_count
-        })
+    from sqlalchemy import extract
+    
+    if filter in ["Today", "Yesterday", "This Week"]:
+        for i in range(6, -1, -1):
+            target_date = today - timedelta(days=i)
+            day_name = target_date.strftime("%b %d") # e.g. Sep 14
+            
+            users_count = db.query(models.User).filter(
+                func.date(models.User.created_datetime) == target_date,
+                models.User.is_active == True
+            ).count()
+            
+            jobs_count = db.query(models.Job).filter(
+                func.date(models.Job.created_datetime) == target_date,
+                models.Job.is_active == True
+            ).count()
+            
+            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            
+    elif filter == "This Month":
+        for i in range(29, -1, -1):
+            target_date = today - timedelta(days=i)
+            day_name = target_date.strftime("%b %d")
+            
+            users_count = db.query(models.User).filter(func.date(models.User.created_datetime) == target_date, models.User.is_active == True).count()
+            jobs_count = db.query(models.Job).filter(func.date(models.Job.created_datetime) == target_date, models.Job.is_active == True).count()
+            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            
+    elif filter == "This Year":
+        for i in range(11, -1, -1):
+            m = today.month - i
+            y = today.year
+            if m <= 0:
+                m += 12
+                y -= 1
+            import calendar
+            day_name = f"{calendar.month_abbr[m]} {y}"
+            
+            users_count = db.query(models.User).filter(extract('month', models.User.created_datetime) == m, extract('year', models.User.created_datetime) == y, models.User.is_active == True).count()
+            jobs_count = db.query(models.Job).filter(extract('month', models.Job.created_datetime) == m, extract('year', models.Job.created_datetime) == y, models.Job.is_active == True).count()
+            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            
+    elif filter == "All Time":
+        for i in range(4, -1, -1):
+            y = today.year - i
+            day_name = str(y)
+            users_count = db.query(models.User).filter(extract('year', models.User.created_datetime) == y, models.User.is_active == True).count()
+            jobs_count = db.query(models.Job).filter(extract('year', models.Job.created_datetime) == y, models.Job.is_active == True).count()
+            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
 
     return {
         "totals": {
