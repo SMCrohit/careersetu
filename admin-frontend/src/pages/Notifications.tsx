@@ -1,5 +1,3 @@
-import { Search } from 'lucide-react';
-
 const Notifications = () => {
   return (
     <div className="animate-fade-in">
