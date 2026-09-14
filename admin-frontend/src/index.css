@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@theme {
+  --color-primaryBrand: #0A66C2;
+  --color-primaryText: #191919;
+  --color-secondaryText: #666666;
+  --color-background: #F3F2EF;
+  --color-backgroundLight: #E9E5DF;
+  --color-border: #E0E0E0;
+  --color-borderDark: #8C8C8C;
+  --color-success: #054C1E;
+  --color-error: #D93025;
+  --color-highlight: #4FACFE;
+  
+  --font-sans: 'Inter', sans-serif;
+
+  --animate-fade-in: fadeIn 0.3s ease-out;
+  --animate-slide-up: slideUp 0.4s ease-out;
+
+  @keyframes fadeIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  @keyframes slideUp {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-background text-primaryText font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primaryBrand text-white px-4 py-2 rounded-md font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primaryBrand focus:ring-offset-2;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-border overflow-hidden;
+  }
+
+  .input-field {
+    @apply w-full border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primaryBrand focus:ring-1 focus:ring-primaryBrand transition-colors;
+  }
+}
