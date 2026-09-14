@@ -7,7 +7,10 @@ from datetime import timedelta, datetime, date
 import models, schemas, auth
 from database import engine, get_db
 
-models.Base.metadata.create_all(bind=engine)
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Failed to connect to database on startup: {e}")
 
 app = FastAPI(title="Careersetu API")
 
