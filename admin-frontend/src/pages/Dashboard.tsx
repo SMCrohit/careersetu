@@ -33,7 +33,7 @@ const Dashboard = () => {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl font-bold text-primaryText">Dashboard Overview</h1>
-          <p className="text-secondaryText">Here's what's happening today.</p>
+          <p className="text-secondaryText">Here's what's happening for {filter.toLowerCase()}.</p>
         </div>
         <select 
           value={filter} 
@@ -62,10 +62,10 @@ const Dashboard = () => {
           <div className="h-full flex items-center justify-center text-secondaryText">Loading chart data...</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.chart_data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <BarChart data={stats.chart_data} margin={{ top: 5, right: 30, left: 20, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E0E0E0" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{dy: 10}} />
+              <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
               <Tooltip cursor={{fill: '#F3F2EF'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}/>
               <Bar dataKey="users" fill="#0A66C2" radius={[4, 4, 0, 0]} />
               <Bar dataKey="jobs" fill="#4FACFE" radius={[4, 4, 0, 0]} />
