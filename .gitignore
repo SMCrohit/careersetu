@@ -46,6 +46,8 @@ app.*.map.json
 
 # Backend
 backend/.env
-
+backend/.env.production
+backend/venv/
+backend/__pycache__/
 # Docs
 README.md
