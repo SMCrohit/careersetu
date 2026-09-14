@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-import { Lock, User } from 'lucide-react';
+import { Lock, User, Eye, EyeOff } from 'lucide-react';
 
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -30,7 +31,7 @@ const Login = () => {
       <div className="card w-full max-w-md p-8 animate-slide-up">
         <div className="flex flex-col items-center mb-8">
           <div className="w-12 h-12 bg-primaryBrand rounded-lg flex items-center justify-center text-white font-bold text-2xl mb-4 shadow-lg shadow-primaryBrand/30">C</div>
-          <h1 className="text-2xl font-bold text-primaryText">Admin Login</h1>
+          <h1 className="text-2xl font-bold text-primaryText">Login</h1>
           <p className="text-secondaryText mt-1">Welcome back to CareerSetu</p>
         </div>
 
@@ -56,13 +57,20 @@ const Login = () => {
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 text-borderDark" size={18} />
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input-field pl-10"
+                className="input-field pl-10 pr-10"
                 placeholder="Enter password"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-2.5 text-borderDark hover:text-primaryText transition-colors focus:outline-none"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
           <button type="submit" className="btn-primary w-full mt-2">
