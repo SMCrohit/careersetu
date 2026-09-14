@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import os
 import jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 from database import get_db
 import models
 
-SECRET_KEY = "my_super_secret_key_for_careersetu" # In production, use env variable
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY", "my_super_secret_key_for_careersetu")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
 
