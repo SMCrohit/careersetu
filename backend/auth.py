@@ -35,7 +35,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_admin(token: str = Depends(oauth2_scheme)):
+async def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -49,7 +49,13 @@ async def get_current_admin(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
-    return username
+    
+    # Verify user exists in database
+    admin_user = db.query(models.AdminUser).filter(models.AdminUser.username == username, models.AdminUser.is_active == True).first()
+    if admin_user is None:
+        raise credentials_exception
+        
+    return admin_user.username
 
 def log_admin_action(db: Session, admin_id: str, action: str, module: str, record_id: str, details: dict = {}):
     log = models.ActivityLog(

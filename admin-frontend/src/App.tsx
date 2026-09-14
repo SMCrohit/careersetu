@@ -10,6 +10,7 @@ import Offers from './pages/Offers';
 import Notifications from './pages/Notifications';
 import Users from './pages/Users';
 import UserProfile from './pages/UserProfile';
+import ActivityLogs from './pages/ActivityLogs';
 import { ToastProvider } from './context/ToastContext';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -40,6 +41,7 @@ function App() {
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
           <Route path="/users/:id" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+          <Route path="/logs" element={<ProtectedRoute><ActivityLogs /></ProtectedRoute>} />
         </Routes>
       </Router>
     </ToastProvider>

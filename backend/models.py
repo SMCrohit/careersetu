@@ -21,6 +21,13 @@ class User(BaseModel):
     goal = Column(String)
     resume_data = Column(JSON, nullable=True)
 
+class AdminUser(BaseModel):
+    __tablename__ = "admin_users"
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    email = Column(String, nullable=True)
+    role = Column(String, default="admin")
+
 class Job(BaseModel):
     __tablename__ = "jobs"
     title = Column(String, index=True)

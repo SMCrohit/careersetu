@@ -9,6 +9,17 @@ from database import engine, get_db
 
 try:
     models.Base.metadata.create_all(bind=engine)
+    # Initialize default admin user if none exists
+    db = next(get_db())
+    if db.query(models.AdminUser).count() == 0:
+        default_admin = models.AdminUser(
+            username="admin",
+            password_hash=auth.get_password_hash("password123"),
+            role="admin"
+        )
+        db.add(default_admin)
+        db.commit()
+    db.close()
 except Exception as e:
     print(f"Warning: Failed to connect to database on startup: {e}")
 
@@ -23,17 +34,20 @@ app.add_middleware(
 )
 
 @app.post("/api/admin/login")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    # Hardcoded for now based on requirements
-    if form_data.username != "admin" or form_data.password != "password123":
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    admin_user = db.query(models.AdminUser).filter(models.AdminUser.username == form_data.username).first()
+    if not admin_user or not auth.verify_password(form_data.password, admin_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not admin_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
-        data={"sub": form_data.username, "role": "admin"}, expires_delta=access_token_expires
+        data={"sub": admin_user.username, "role": admin_user.role}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -243,6 +257,11 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
         "test_attempts": test_attempts_enriched,
         "doctor_appointments": doc_appts_enriched
     }
+
+# Activity Logs
+@app.get("/api/logs", response_model=list[schemas.ActivityLog])
+def get_activity_logs(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    return db.query(models.ActivityLog).order_by(models.ActivityLog.created_datetime.desc()).all()
 
 # Dashboard Stats
 @app.get("/api/dashboard/stats")

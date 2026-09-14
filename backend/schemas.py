@@ -22,6 +22,17 @@ class UserBase(BaseModel):
 class User(UserBase, ORMBase):
     pass
 
+class AdminUserBase(BaseModel):
+    username: str
+    email: Optional[str] = None
+    role: str = "admin"
+
+class AdminUserCreate(AdminUserBase):
+    password: str
+
+class AdminUserOut(AdminUserBase, ORMBase):
+    pass
+
 class JobBase(BaseModel):
     title: str
     company: str
