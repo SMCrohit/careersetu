@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, FileText, UserSquare2, Tag, Bell, Users, LogOut, Activity } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, UserSquare2, Tag, Bell, Users, LogOut } from 'lucide-react';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -11,7 +11,6 @@ const Sidebar = () => {
     { icon: UserSquare2, label: 'Doctors', path: '/doctors' },
     { icon: Tag, label: 'Offers', path: '/offers' },
     { icon: Bell, label: 'Notifications', path: '/notifications' },
-    { icon: Activity, label: 'Activity Logs', path: '/logs' },
     { icon: Users, label: 'Users', path: '/users' },
   ];
 
