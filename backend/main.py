@@ -16,16 +16,22 @@ cred_path = "career-setu-8ff5d-firebase-adminsdk-fbsvc-f54d43d846.json"
 try:
     firebase_admin.get_app()
 except ValueError:
-    if os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-    elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
-        import json
-        cred_dict = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-    else:
-        print("Warning: Firebase Admin not initialized. No service account found.")
+    try:
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
+            import json
+            cred_dict = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+            # Vercel often escapes \n in environment variables. We must replace literal \\n with actual newlines.
+            if "private_key" in cred_dict:
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        else:
+            print("Warning: Firebase Admin not initialized. No service account found.")
+    except Exception as e:
+        print(f"CRITICAL ERROR INITIALIZING FIREBASE: {e}")
 
 try:
     models.Base.metadata.create_all(bind=engine)
@@ -34,18 +40,18 @@ try:
     if db.query(models.AdminUser).count() == 0:
         admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD")
         if not admin_password:
-            raise ValueError("DEFAULT_ADMIN_PASSWORD environment variable is missing.")
-            
-        default_admin = models.AdminUser(
-            username="admin",
-            password_hash=auth.get_password_hash(admin_password),
-            role="admin"
-        )
-        db.add(default_admin)
-        db.commit()
+            print("WARNING: DEFAULT_ADMIN_PASSWORD environment variable is missing.")
+        else:
+            default_admin = models.AdminUser(
+                username="admin",
+                password_hash=auth.get_password_hash(admin_password),
+                role="admin"
+            )
+            db.add(default_admin)
+            db.commit()
     db.close()
 except Exception as e:
-    print(f"Warning: Failed to connect to database on startup: {e}")
+    print(f"CRITICAL ERROR INITIALIZING DATABASE ON STARTUP: {e}")
 
 app = FastAPI(title="Careersetu API")
 

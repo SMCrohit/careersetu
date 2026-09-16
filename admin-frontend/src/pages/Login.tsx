@@ -21,8 +21,12 @@ const Login = () => {
       const response = await api.post('/admin/login', formData);
       localStorage.setItem('adminToken', response.data.access_token);
       navigate('/');
-    } catch (err) {
-      setError('Invalid credentials');
+    } catch (err: any) {
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else {
+        setError('Server Error: ' + err.message);
+      }
     }
   };
 
