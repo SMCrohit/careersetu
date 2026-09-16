@@ -131,3 +131,32 @@ class UserProfileDetails(BaseModel):
     job_applications: List[JobApplication] = []
     test_attempts: List[TestAttempt] = []
     doctor_appointments: List[DoctorAppointment] = []
+
+class OTPRequest(BaseModel):
+    mobile_number: str
+
+class OTPVerify(BaseModel):
+    mobile_number: str
+    otp: str
+
+class FirebaseLoginRequest(BaseModel):
+    id_token: str
+
+class FirebaseSignupRequest(BaseModel):
+    id_token: str
+    user_details: UserBase
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: User
+
+class BannerBase(BaseModel):
+    image_url: str
+    link_url: str
+
+class BannerCreate(BannerBase):
+    pass
+
+class Banner(BannerBase, ORMBase):
+    pass

@@ -12,7 +12,9 @@ import models
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "my_super_secret_key_for_careersetu")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is missing. It is required for security.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
 
@@ -55,6 +57,27 @@ async def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = D
         raise credentials_exception
         
     return admin_user.username
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        mobile_number: str = payload.get("sub")
+        role: str = payload.get("role")
+        if mobile_number is None or role != "user":
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+    
+    user = db.query(models.User).filter(models.User.mobile_number == mobile_number, models.User.is_active == True).first()
+    if user is None:
+        raise credentials_exception
+        
+    return user
 
 def log_admin_action(db: Session, admin_id: str, action: str, module: str, record_id: str, details: dict = {}):
     log = models.ActivityLog(

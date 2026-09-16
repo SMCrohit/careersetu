@@ -1,4 +1,5 @@
 class User {
+  final String? id;
   final String mobileNumber;
   final String fullName;
   final String email;
@@ -6,6 +7,7 @@ class User {
   final String goal;
 
   User({
+    this.id,
     required this.mobileNumber,
     required this.fullName,
     required this.email,
@@ -15,8 +17,9 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      mobileNumber: json['mobileNumber'] ?? '',
-      fullName: json['fullName'] ?? '',
+      id: json['id'] as String?,
+      mobileNumber: json['mobile_number'] ?? json['mobileNumber'] ?? '',
+      fullName: json['full_name'] ?? json['fullName'] ?? '',
       email: json['email'] ?? '',
       city: json['city'] ?? '',
       goal: json['goal'] ?? '',
@@ -25,8 +28,9 @@ class User {
 
   Map<String, dynamic> toJson() {
     return {
-      'mobileNumber': mobileNumber,
-      'fullName': fullName,
+      if (id != null) 'id': id,
+      'mobile_number': mobileNumber,
+      'full_name': fullName,
       'email': email,
       'city': city,
       'goal': goal,

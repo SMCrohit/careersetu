@@ -34,8 +34,8 @@ class JobModel {
       salary: json['salary'] as String,
       type: json['type'] as String,
       level: json['level'] as String,
-      postedTime: json['postedTime'] as String,
-      applicants: json['applicants'] as String,
+      postedTime: json['posted_time'] as String? ?? json['postedTime'] as String? ?? '',
+      applicants: json['applicants'] as String? ?? json['applicants']?.toString() ?? '0',
       description: json['description'] as String,
       requirements: List<String>.from(json['requirements'] ?? []),
     );

@@ -42,11 +42,14 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
         goal: _selectedGoal!,
       );
       
-      final success = await ref.read(authProvider.notifier).signup(user);
+      final success = await ref.read(authProvider.notifier).requestSignupOtp(user);
       if (success) {
-        CustomToast.showSuccess(context, 'Registration Successful! Please login.');
         if (!mounted) return;
-        Navigator.pop(context); // Go back to login
+        Navigator.pushNamed(context, '/otp', arguments: {
+          'mobileNumber': _mobileController.text,
+          'isSignup': true,
+          'signupData': user,
+        });
       } else {
         if (!mounted) return;
         final error = ref.read(authProvider).error ?? 'Signup failed';

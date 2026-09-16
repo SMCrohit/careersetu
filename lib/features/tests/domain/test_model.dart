@@ -50,10 +50,10 @@ class TestModel {
       title: json['title'] as String,
       tag: json['tag'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      durationMins: json['durationMins'] as int? ?? 0,
+      durationMins: json['duration_mins'] as int? ?? json['durationMins'] as int? ?? 0,
       difficulty: json['difficulty'] as String? ?? 'Medium',
-      providerName: json['providerName'] as String? ?? 'CareerSetu Standard',
-      maxDiscountPercentage: json['maxDiscountPercentage'] as int? ?? 0,
+      providerName: json['provider_name'] as String? ?? json['providerName'] as String? ?? 'CareerSetu Standard',
+      maxDiscountPercentage: json['max_discount_percentage'] as int? ?? json['maxDiscountPercentage'] as int? ?? 0,
       questions: (json['questions'] as List<dynamic>?)
               ?.map((e) => QuestionModel.fromJson(e))
               .toList() ??

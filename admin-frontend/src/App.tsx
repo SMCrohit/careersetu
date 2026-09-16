@@ -7,6 +7,7 @@ import Tests from './pages/Tests';
 import TestQuestions from './pages/TestQuestions';
 import Doctors from './pages/Doctors';
 import Offers from './pages/Offers';
+import Banners from './pages/Banners';
 import Notifications from './pages/Notifications';
 import Users from './pages/Users';
 import UserProfile from './pages/UserProfile';
@@ -38,6 +39,7 @@ function App() {
           <Route path="/tests/:id/questions" element={<ProtectedRoute><TestQuestions /></ProtectedRoute>} />
           <Route path="/doctors" element={<ProtectedRoute><Doctors /></ProtectedRoute>} />
           <Route path="/offers" element={<ProtectedRoute><Offers /></ProtectedRoute>} />
+          <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
           <Route path="/users/:id" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />

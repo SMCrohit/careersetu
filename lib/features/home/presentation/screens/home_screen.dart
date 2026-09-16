@@ -12,6 +12,8 @@ import '../../../jobs/presentation/screens/applied_jobs_screen.dart';
 import '../../../appointments/presentation/screens/appointments_screen.dart';
 import '../../../tests/presentation/screens/my_tests_screen.dart';
 import '../../../offers/presentation/screens/offers_hub_screen.dart';
+import '../../../doctors/presentation/providers/doctors_provider.dart';
+import '../providers/banners_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -22,33 +24,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Color bgColor = const Color(0xFFF0EBE1);
-
-  final List<Map<String, dynamic>> banners = [
-    {
-      'title': 'MBA Admissions Open',
-      'subtitle': 'Symbiosis University, Pune.',
-      'highlight': 'Flat 20% Scholarship.',
-      'url': 'https://symbiosis.edu.in',
-      'imageUrl': 'https://picsum.photos/seed/mba/200/200',
-      'gradient': const LinearGradient(colors: [Color(0xFF8A2387), Color(0xFFE94057), Color(0xFFF27121)]),
-    },
-    {
-      'title': 'Learn AI Development',
-      'subtitle': 'Google Cloud Certificate.',
-      'highlight': 'Start your free trial today.',
-      'url': 'https://cloud.google.com/training',
-      'imageUrl': 'https://picsum.photos/seed/tech/200/200',
-      'gradient': const LinearGradient(colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)]),
-    },
-    {
-      'title': 'Find Your Dream Job',
-      'subtitle': 'Top tech companies are hiring.',
-      'highlight': 'Upload your resume now.',
-      'url': 'https://linkedin.com',
-      'imageUrl': 'https://picsum.photos/seed/job/200/200',
-      'gradient': const LinearGradient(colors: [Color(0xFF4776E6), Color(0xFF8E54E9)]),
-    },
-  ];
 
   Future<void> _launchUrl(String urlString) async {
     final Uri url = Uri.parse(urlString);
@@ -97,100 +72,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Auto-scrolling Carousel Banner
-            CarouselSlider(
-              options: CarouselOptions(
-                height: 180.0,
-                autoPlay: true,
-                autoPlayInterval: const Duration(seconds: 4),
-                enlargeCenterPage: true,
-                viewportFraction: 0.95,
-              ),
-              items: banners.map((banner) {
-                return Builder(
-                  builder: (BuildContext context) {
-                    return GestureDetector(
-                      onTap: () => _launchUrl(banner['url']!),
-                      child: Container(
-                        width: MediaQuery.of(context).size.width,
-                        margin: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 8.0),
-                        decoration: BoxDecoration(
-                          gradient: banner['gradient'],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Container(
-                                width: 80,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  color: AppColors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  image: DecorationImage(
-                                    image: NetworkImage(banner['imageUrl']), 
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      banner['title']!,
-                                      style: const TextStyle(
-                                        color: Colors.white, // White title for all gradients
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        height: 1.2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      banner['subtitle']!,
-                                      style: const TextStyle(color: AppColors.white, fontSize: 14),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      banner['highlight']!,
-                                      style: const TextStyle(
-                                        color: Color(0xFFFFD54F), // Yellow highlight
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(right: 16.0),
-                              child: ElevatedButton(
-                                onPressed: () => _launchUrl(banner['url']!),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: AppColors.primaryBrand,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  elevation: 0,
-                                ),
-                                child: const Text('Apply', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ],
-                        ),
+            Consumer(
+              builder: (context, ref, _) {
+                final bannersState = ref.watch(bannersProvider);
+                return bannersState.when(
+                  data: (banners) {
+                    if (banners.isEmpty) return const SizedBox();
+                    return CarouselSlider(
+                      options: CarouselOptions(
+                        height: 180.0,
+                        autoPlay: true,
+                        autoPlayInterval: const Duration(seconds: 4),
+                        enlargeCenterPage: true,
+                        viewportFraction: 0.95,
                       ),
+                      items: banners.map((banner) {
+                        return Builder(
+                          builder: (BuildContext context) {
+                            return GestureDetector(
+                              onTap: () => _launchUrl(banner.linkUrl),
+                              child: Container(
+                                width: MediaQuery.of(context).size.width,
+                                margin: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 8.0),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: Colors.grey[300], // Fallback color
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.network(
+                                    banner.imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Center(
+                                        child: Icon(Icons.broken_image, color: Colors.grey, size: 40),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      }).toList(),
                     );
                   },
+                  loading: () => const SizedBox(height: 180, child: Center(child: CircularProgressIndicator())),
+                  error: (e, st) => const SizedBox(),
                 );
-              }).toList(),
+              },
             ),
 
             Padding(
@@ -269,67 +199,67 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       height: 180,
                       child: Consumer(
                         builder: (context, ref, _) {
-                          // Note: In a real app we would have a featuredDoctorsProvider. We just use doctorsProvider here.
-                          // It is imported dynamically or we can just mock it for the horizontal list to avoid cyclic imports or big changes.
-                          return ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            itemCount: 4,
-                            itemBuilder: (context, index) {
-                              final dummyNames = ['Dr. Aarti Sharma', 'Dr. Rohan Patil', 'Dr. Sneha Verma', 'Dr. Arjun Kapoor'];
-                              final dummySpecs = ['Clinical Psychologist', 'Physiotherapist', 'General Physician', 'Career Counselor'];
-                              final dummyImg = 'https://randomuser.me/api/portraits/${index % 2 == 0 ? 'women' : 'men'}/${index + 10}.jpg';
+                          final doctorsState = ref.watch(doctorsProvider);
+                          
+                          return doctorsState.when(
+                            data: (doctors) {
+                              if (doctors.isEmpty) {
+                                return const Center(child: Text('No doctors available.'));
+                              }
                               
-                              final dummyDoctor = Doctor(
-                                id: 'mock_home_$index',
-                                name: dummyNames[index],
-                                specialty: dummySpecs[index],
-                                clinic: 'City Health Center',
-                                experienceYears: 5 + index * 3,
-                                rating: 4.5 + (index * 0.1),
-                                reviews: 100 + index * 40,
-                                consultationFee: 500 + index * 100,
-                                imageUrl: dummyImg,
-                              );
-
-                              return Container(
-                                width: 140,
-                                margin: const EdgeInsets.symmetric(horizontal: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: AppColors.border),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(radius: 28, backgroundImage: NetworkImage(dummyImg)),
-                                    const SizedBox(height: 8),
-                                    Text(dummyNames[index], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 4),
-                                    Text(dummySpecs[index], style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      height: 30,
-                                      width: double.infinity,
-                                      child: OutlinedButton(
-                                        onPressed: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(builder: (context) => DoctorDetailsScreen(doctor: dummyDoctor)),
-                                          );
-                                        },
-                                        style: OutlinedButton.styleFrom(
-                                          padding: EdgeInsets.zero,
-                                          side: const BorderSide(color: AppColors.primaryBrand),
-                                        ),
-                                        child: const Text('View Details', style: TextStyle(fontSize: 12)),
-                                      ),
-                                    )
-                                  ],
-                                ),
+                              final displayDoctors = doctors.take(4).toList();
+                              
+                              return ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                itemCount: displayDoctors.length,
+                                itemBuilder: (context, index) {
+                                  final doctor = displayDoctors[index];
+                                  final dummyImg = 'https://randomuser.me/api/portraits/${index % 2 == 0 ? 'women' : 'men'}/${index + 10}.jpg';
+                                  final img = doctor.imageUrl != 'https://via.placeholder.com/150' ? doctor.imageUrl : dummyImg;
+                                  
+                                  return Container(
+                                    width: 140,
+                                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: AppColors.border),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        CircleAvatar(radius: 28, backgroundImage: NetworkImage(img)),
+                                        const SizedBox(height: 8),
+                                        Text(doctor.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 4),
+                                        Text(doctor.specialty, style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          height: 30,
+                                          width: double.infinity,
+                                          child: OutlinedButton(
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(builder: (context) => DoctorDetailsScreen(doctor: doctor)),
+                                              );
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              padding: EdgeInsets.zero,
+                                              side: const BorderSide(color: AppColors.primaryBrand),
+                                            ),
+                                            child: const Text('View Details', style: TextStyle(fontSize: 12)),
+                                          ),
+                                        )
+                                      ],
+                                    ),
+                                  );
+                                },
                               );
                             },
+                            loading: () => const Center(child: CircularProgressIndicator()),
+                            error: (err, stack) => Center(child: Text('Error loading doctors')),
                           );
                         },
                       ),

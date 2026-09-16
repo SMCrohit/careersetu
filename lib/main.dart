@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'core/constants/app_colors.dart';
 import 'features/auth/presentation/screens/registration_screen.dart';
 import 'features/auth/presentation/screens/otp_screen.dart';
@@ -7,7 +10,14 @@ import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/home/presentation/screens/main_navigation.dart';
 import 'features/profile/presentation/screens/profile_screen.dart';
 import 'features/notifications/presentation/screens/notifications_screen.dart';
-void main() {
+import 'features/auth/presentation/providers/auth_provider.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const ProviderScope(child: CareerSetuApp()));
 }
 
@@ -44,7 +54,7 @@ class CareerSetuApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primaryBrand),
         useMaterial3: false,
       ),
-      initialRoute: '/login',
+      home: const AuthWrapper(),
       routes: {
         '/login': (context) => const LoginScreen(),
         '/registration': (context) => const RegistrationScreen(),
@@ -54,5 +64,35 @@ class CareerSetuApp extends StatelessWidget {
         '/notifications': (context) => const NotificationsScreen(),
       },
     );
+  }
+}
+
+class AuthWrapper extends ConsumerStatefulWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  ConsumerState<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends ConsumerState<AuthWrapper> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => ref.read(authProvider.notifier).initCheck());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
+
+    if (!authState.isInitialCheckDone) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (authState.currentUser != null) {
+      return const MainNavigation();
+    }
+
+    return const LoginScreen();
   }
 }

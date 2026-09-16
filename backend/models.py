@@ -108,3 +108,8 @@ class GameSession(BaseModel):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     game_type = Column(String)
     score = Column(Integer)
+
+class Banner(BaseModel):
+    __tablename__ = "banners"
+    image_url = Column(String)
+    link_url = Column(String)

@@ -5,6 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_toast.dart';
 import '../providers/auth_provider.dart';
+import '../../domain/user_model.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   const OtpScreen({super.key});
@@ -22,15 +23,21 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     super.dispose();
   }
 
-  void _verifyOtp(String mobileNumber) async {
+  void _verifyOtp(String mobileNumber, {bool isSignup = false, User? signupData}) async {
     if (_otpController.text.length != 4) {
       CustomToast.showError(context, 'Please enter a 4-digit OTP');
       return;
     }
 
-    final success = await ref.read(authProvider.notifier).verifyOtp(mobileNumber, _otpController.text);
+    bool success;
+    if (isSignup && signupData != null) {
+      success = await ref.read(authProvider.notifier).verifySignupOtp(signupData, _otpController.text);
+    } else {
+      success = await ref.read(authProvider.notifier).verifyOtp(mobileNumber, _otpController.text);
+    }
+
     if (success) {
-      CustomToast.showSuccess(context, 'Login Successful!');
+      CustomToast.showSuccess(context, isSignup ? 'Registration Successful!' : 'Login Successful!');
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
     } else {
@@ -42,8 +49,19 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // We pass the mobile number as argument from Login screen
-    final mobileNumber = ModalRoute.of(context)?.settings.arguments as String? ?? '9876543210';
+    final args = ModalRoute.of(context)?.settings.arguments;
+    String mobileNumber = '9876543210';
+    bool isSignup = false;
+    User? signupData;
+
+    if (args is String) {
+      mobileNumber = args;
+    } else if (args is Map<String, dynamic>) {
+      mobileNumber = args['mobileNumber'] as String;
+      isSignup = args['isSignup'] as bool? ?? false;
+      signupData = args['signupData'] as User?;
+    }
+
     final authState = ref.watch(authProvider);
 
     final defaultPinTheme = PinTheme(
@@ -99,7 +117,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                   length: 4,
                   defaultPinTheme: defaultPinTheme,
                   focusedPinTheme: focusedPinTheme,
-                  onCompleted: (pin) => _verifyOtp(mobileNumber),
+                  onCompleted: (pin) => _verifyOtp(mobileNumber, isSignup: isSignup, signupData: signupData),
                 ),
               ),
               const SizedBox(height: 32),
@@ -107,7 +125,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : PrimaryButton(
                       text: 'Verify',
-                      onPressed: () => _verifyOtp(mobileNumber),
+                      onPressed: () => _verifyOtp(mobileNumber, isSignup: isSignup, signupData: signupData),
                     ),
               const SizedBox(height: 24),
               Center(

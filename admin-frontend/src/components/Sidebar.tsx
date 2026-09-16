@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, FileText, UserSquare2, Tag, Bell, Users, LogOut } from 'lucide-react';
+import { LayoutDashboard, Briefcase, FileText, UserSquare2, Tag, Bell, Users, LogOut, Image as ImageIcon } from 'lucide-react';
 
 const Sidebar = () => {
   const location = useLocation();
 
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+    { icon: ImageIcon, label: 'Banners', path: '/banners' },
     { icon: Briefcase, label: 'Jobs', path: '/jobs' },
     { icon: FileText, label: 'Tests', path: '/tests' },
     { icon: UserSquare2, label: 'Doctors', path: '/doctors' },

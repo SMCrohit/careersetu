@@ -1,60 +1,70 @@
-import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api/api_client.dart';
 import '../domain/user_model.dart';
-
-// Fake JSON Database in memory
-String fakeDbJson = '''
-{
-  "users": [
-    {
-      "mobileNumber": "9876543210",
-      "fullName": "Rahul Sharma",
-      "email": "rahul.sharma@email.com",
-      "city": "Bengaluru",
-      "goal": "software_developer"
-    }
-  ]
-}
-''';
+import '../../jobs/data/jobs_repository.dart'; // to get apiClientProvider
 
 class AuthRepository {
-  List<User> _users = [];
+  final ApiClient _apiClient;
 
-  AuthRepository() {
-    _loadFakeDb();
-  }
-
-  void _loadFakeDb() {
-    final Map<String, dynamic> data = jsonDecode(fakeDbJson);
-    final List<dynamic> usersData = data['users'];
-    _users = usersData.map((e) => User.fromJson(e)).toList();
-  }
+  AuthRepository(this._apiClient);
 
   Future<bool> requestOtp(String mobileNumber) async {
-    await Future.delayed(const Duration(milliseconds: 800)); // Simulate network
-    // For demo: Only allow 9876543210 or recently signed up users.
-    return _users.any((u) => u.mobileNumber == mobileNumber);
-  }
-
-  Future<User?> verifyOtp(String mobileNumber, String otp) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    // For demo: Hardcoded OTP 4321
-    if (otp == "4321") {
-      try {
-        return _users.firstWhere((u) => u.mobileNumber == mobileNumber);
-      } catch (e) {
-        return null;
-      }
+    try {
+      await _apiClient.post('/auth/request-otp', data: {'mobile_number': mobileNumber});
+      return true;
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return false; // User not found, needs signup
+      rethrow;
     }
-    return null;
   }
 
-  Future<void> signup(User user) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    // If exists, replace
-    _users.removeWhere((u) => u.mobileNumber == user.mobileNumber);
-    _users.add(user);
+  Future<Map<String, dynamic>?> verifyOtp(String mobileNumber, String otp) async {
+    try {
+      final response = await _apiClient.post('/auth/verify-otp', data: {
+        'mobile_number': mobileNumber,
+        'otp': otp,
+      });
+      return response.data; // Expected {access_token, token_type, user}
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> firebaseLogin(String idToken) async {
+    try {
+      final response = await _apiClient.post('/auth/firebase-login', data: {
+        'id_token': idToken,
+      });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> firebaseSignup(String idToken, User user) async {
+    try {
+      final response = await _apiClient.post('/auth/firebase-signup', data: {
+        'id_token': idToken,
+        'user_details': user.toJson(),
+      });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> signup(User user) async {
+    try {
+      final response = await _apiClient.post('/auth/signup', data: user.toJson());
+      return response.data; // Expected {access_token, token_type, user}
+    } catch (e) {
+      return null;
+    }
   }
 }
 
-final authRepositoryProvider = Provider((ref) => AuthRepository());
+final authRepositoryProvider = Provider((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return AuthRepository(apiClient);
+});
+

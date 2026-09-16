@@ -7,14 +7,38 @@ from datetime import timedelta, datetime, date
 import models, schemas, auth
 from database import engine, get_db
 
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
+import os
+
+# Initialize Firebase Admin
+cred_path = "career-setu-8ff5d-firebase-adminsdk-fbsvc-f54d43d846.json"
+try:
+    firebase_admin.get_app()
+except ValueError:
+    if os.path.exists(cred_path):
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+    elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
+        import json
+        cred_dict = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+    else:
+        print("Warning: Firebase Admin not initialized. No service account found.")
+
 try:
     models.Base.metadata.create_all(bind=engine)
     # Initialize default admin user if none exists
     db = next(get_db())
     if db.query(models.AdminUser).count() == 0:
+        admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD")
+        if not admin_password:
+            raise ValueError("DEFAULT_ADMIN_PASSWORD environment variable is missing.")
+            
         default_admin = models.AdminUser(
             username="admin",
-            password_hash=auth.get_password_hash("password123"),
+            password_hash=auth.get_password_hash(admin_password),
             role="admin"
         )
         db.add(default_admin)
@@ -50,6 +74,139 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         data={"sub": admin_user.username, "role": admin_user.role}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+# User Auth Endpoints
+@app.post("/api/auth/request-otp")
+def request_otp(req: schemas.OTPRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.mobile_number == req.mobile_number, models.User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # In real world, trigger SMS here
+    return {"message": "OTP sent successfully"}
+
+@app.post("/api/auth/verify-otp", response_model=schemas.TokenResponse)
+def verify_otp(req: schemas.OTPVerify, db: Session = Depends(get_db)):
+    if req.otp != "4321":
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    user = db.query(models.User).filter(models.User.mobile_number == req.mobile_number, models.User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = auth.create_access_token(
+        data={"sub": user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": user}
+
+@app.post("/api/auth/signup", response_model=schemas.TokenResponse)
+def signup(req: schemas.UserBase, db: Session = Depends(get_db)):
+    existing_user = db.query(models.User).filter(models.User.mobile_number == req.mobile_number).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Mobile number already registered")
+        
+    db_user = models.User(**req.model_dump())
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = auth.create_access_token(
+        data={"sub": db_user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": db_user}
+
+@app.post("/api/auth/firebase-login", response_model=schemas.TokenResponse)
+def firebase_login(req: schemas.FirebaseLoginRequest, db: Session = Depends(get_db)):
+    try:
+        decoded_token = firebase_auth.verify_id_token(req.id_token)
+        phone_number = decoded_token.get('phone_number')
+        if not phone_number:
+            raise HTTPException(status_code=400, detail="No phone number found in token")
+            
+        # Standardize phone number format (remove +91 if needed, or keep it depending on DB)
+        # Firebase format: +919876543210. The frontend sends mobile_number as 9876543210.
+        formatted_number = phone_number.replace("+91", "")
+            
+        user = db.query(models.User).filter(models.User.mobile_number == formatted_number, models.User.is_active == True).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found. Please sign up.")
+            
+        access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = auth.create_access_token(
+            data={"sub": user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer", "user": user}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase Token: {str(e)}")
+
+@app.post("/api/auth/firebase-signup", response_model=schemas.TokenResponse)
+def firebase_signup(req: schemas.FirebaseSignupRequest, db: Session = Depends(get_db)):
+    try:
+        decoded_token = firebase_auth.verify_id_token(req.id_token)
+        phone_number = decoded_token.get('phone_number')
+        if not phone_number:
+            raise HTTPException(status_code=400, detail="No phone number found in token")
+            
+        formatted_number = phone_number.replace("+91", "")
+        
+        # Override the user's provided number with the verified one
+        req.user_details.mobile_number = formatted_number
+        
+        existing_user = db.query(models.User).filter(models.User.mobile_number == formatted_number).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Mobile number already registered")
+            
+        db_user = models.User(**req.user_details.model_dump())
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = auth.create_access_token(
+            data={"sub": db_user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer", "user": db_user}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase Token: {str(e)}")
+
+# Banners API
+@app.get("/api/banners", response_model=list[schemas.Banner])
+def get_banners(db: Session = Depends(get_db)):
+    return db.query(models.Banner).filter(models.Banner.is_active == True).all()
+
+@app.post("/api/banners", response_model=schemas.Banner)
+def create_banner(banner: schemas.BannerCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_banner = models.Banner(**banner.model_dump())
+    db.add(db_banner)
+    db.commit()
+    db.refresh(db_banner)
+    auth.log_admin_action(db, admin, "CREATE", "Banners", db_banner.id)
+    return db_banner
+
+@app.put("/api/banners/{banner_id}", response_model=schemas.Banner)
+def update_banner(banner_id: str, banner: schemas.BannerCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_banner = db.query(models.Banner).filter(models.Banner.id == banner_id).first()
+    if not db_banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    
+    for key, value in banner.model_dump().items():
+        setattr(db_banner, key, value)
+    
+    db.commit()
+    db.refresh(db_banner)
+    auth.log_admin_action(db, admin, "UPDATE", "Banners", banner_id)
+    return db_banner
+
+@app.delete("/api/banners/{banner_id}")
+def delete_banner(banner_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_banner = db.query(models.Banner).filter(models.Banner.id == banner_id).first()
+    if not db_banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    db_banner.is_active = False
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "Banners", banner_id)
+    return {"status": "success"}
 
 @app.get("/api/jobs", response_model=list[schemas.Job])
 def get_jobs(db: Session = Depends(get_db)):

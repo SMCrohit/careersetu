@@ -1,26 +1,24 @@
-import 'dart:convert';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api/api_client.dart';
 import '../domain/job_model.dart';
 
 class JobsRepository {
+  final ApiClient _apiClient;
+
+  JobsRepository(this._apiClient);
+
   Future<List<JobModel>> fetchJobs({
     int page = 1, 
     int limit = 10, 
     String query = '', 
     Set<String> filters = const {},
   }) async {
-    // Simulate network delay
-    await Future.delayed(const Duration(seconds: 1));
+    final response = await _apiClient.get('/jobs');
     
-    // Load JSON from assets
-    final jsonString = await rootBundle.loadString('assets/data/mock_responses.json');
-    final Map<String, dynamic> data = jsonDecode(jsonString);
-    
-    final List<dynamic> jobsJson = data['jobs'];
+    final List<dynamic> jobsJson = response.data;
     List<JobModel> allJobs = jobsJson.map((e) => JobModel.fromJson(e)).toList();
     
-    // Apply search query
+    // Apply search query locally (until backend supports query params)
     if (query.isNotEmpty) {
       final q = query.toLowerCase();
       allJobs = allJobs.where((job) {
@@ -30,19 +28,17 @@ class JobsRepository {
       }).toList();
     }
 
-    // Apply simple mock filters
+    // Apply simple mock filters locally
     if (filters.isNotEmpty) {
       if (filters.contains('Full-time')) {
         allJobs = allJobs.where((job) => job.type == 'Full-time').toList();
       }
       if (filters.contains('Distance')) {
-        // Just sort by shortest distance string length or keep simple mock implementation
         allJobs.sort((a, b) => a.location.compareTo(b.location));
       }
-      // Add more generic mock filters here if needed
     }
     
-    // Simulate pagination
+    // Simulate pagination locally
     final startIndex = (page - 1) * limit;
     if (startIndex >= allJobs.length) {
       return [];
@@ -56,4 +52,10 @@ class JobsRepository {
   }
 }
 
-final jobsRepositoryProvider = Provider((ref) => JobsRepository());
+final apiClientProvider = Provider((ref) => ApiClient());
+
+final jobsRepositoryProvider = Provider((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return JobsRepository(apiClient);
+});
+

@@ -1,19 +1,20 @@
-import 'dart:convert';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api/api_client.dart';
 import '../domain/doctor_model.dart';
+import '../../jobs/data/jobs_repository.dart'; // To reuse apiClientProvider
 
 class DoctorsRepository {
-  Future<List<Doctor>> fetchDoctors({int page = 1, int limit = 10, String query = ''}) async {
-    // Simulate network delay
-    await Future.delayed(const Duration(seconds: 1));
+  final ApiClient _apiClient;
 
-    final String response = await rootBundle.loadString('assets/data/mock_doctors.json');
-    final List<dynamic> data = json.decode(response);
+  DoctorsRepository(this._apiClient);
+
+  Future<List<Doctor>> fetchDoctors({int page = 1, int limit = 10, String query = ''}) async {
+    final response = await _apiClient.get('/doctors');
+    final List<dynamic> data = response.data;
     
     List<Doctor> allDoctors = data.map((json) => Doctor.fromJson(json)).toList();
 
-    // Filter by query
+    // Filter by query locally until backend supports it
     if (query.isNotEmpty) {
       final q = query.toLowerCase();
       allDoctors = allDoctors.where((d) => 
@@ -23,7 +24,7 @@ class DoctorsRepository {
       ).toList();
     }
 
-    // Pagination
+    // Pagination locally until backend supports it
     final startIndex = (page - 1) * limit;
     if (startIndex >= allDoctors.length) {
       return [];
@@ -35,5 +36,6 @@ class DoctorsRepository {
 }
 
 final doctorsRepositoryProvider = Provider<DoctorsRepository>((ref) {
-  return DoctorsRepository();
+  final apiClient = ref.watch(apiClientProvider);
+  return DoctorsRepository(apiClient);
 });
