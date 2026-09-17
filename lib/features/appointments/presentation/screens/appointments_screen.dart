@@ -3,17 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/appointments_provider.dart';
 import '../../domain/appointment_model.dart';
-import '../../../doctors/presentation/screens/doctor_details_screen.dart';
+import 'package:careersetu/features/professionals/presentation/screens/professional_details_screen.dart';
+import 'dart:convert';
 
 class AppointmentsScreen extends ConsumerWidget {
   const AppointmentsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final appointments = ref.watch(appointmentsProvider);
-
-    final upcoming = appointments.where((a) => a.status == 'upcoming').toList();
-    final past = appointments.where((a) => a.status == 'completed').toList();
+    final appointmentsAsync = ref.watch(appointmentsProvider);
 
     return DefaultTabController(
       length: 2,
@@ -34,29 +32,45 @@ class AppointmentsScreen extends ConsumerWidget {
             ],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildAppointmentList(context, upcoming, 'No upcoming appointments.'),
-            _buildAppointmentList(context, past, 'No past appointments.'),
-          ],
+        body: appointmentsAsync.when(
+          data: (appointments) {
+            final upcoming = appointments.where((a) => ['upcoming', 'pending', 'sent_to_professional'].contains(a.status)).toList();
+            final past = appointments.where((a) => ['completed', 'cancelled'].contains(a.status)).toList();
+            return TabBarView(
+              children: [
+                _buildAppointmentList(context, ref, upcoming, 'No upcoming appointments.'),
+                _buildAppointmentList(context, ref, past, 'No past appointments.'),
+              ],
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, stack) => Center(child: Text('Failed to load appointments')),
         ),
       ),
     );
   }
 
-  Widget _buildAppointmentList(BuildContext context, List<Appointment> appointments, String emptyMessage) {
-    if (appointments.isEmpty) {
-      return Center(
-        child: Text(emptyMessage, style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: appointments.length,
+  Widget _buildAppointmentList(BuildContext context, WidgetRef ref, List<Appointment> appointments, String emptyMessage) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        await ref.refresh(appointmentsProvider.future);
+      },
+      child: appointments.isEmpty
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+              child: Container(
+                height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
+                alignment: Alignment.center,
+                child: Text(emptyMessage, style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
+              ),
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+              padding: const EdgeInsets.all(16),
+              itemCount: appointments.length,
       itemBuilder: (context, index) {
         final appt = appointments[index];
-        final doc = appt.doctor;
+        final doc = appt.professional;
         
         return Card(
           margin: const EdgeInsets.only(bottom: 16),
@@ -67,7 +81,7 @@ class AppointmentsScreen extends ConsumerWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => DoctorDetailsScreen(doctor: doc)),
+                MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(professional: doc)),
               );
             },
             child: Padding(
@@ -82,15 +96,15 @@ class AppointmentsScreen extends ConsumerWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: appt.status == 'upcoming' ? AppColors.primaryBrand.withOpacity(0.1) : AppColors.success.withOpacity(0.1),
+                          color: appt.status == 'pending' ? Colors.orange.withOpacity(0.1) : (['upcoming', 'sent_to_professional'].contains(appt.status) ? AppColors.primaryBrand.withOpacity(0.1) : AppColors.success.withOpacity(0.1)),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          appt.status.toUpperCase(),
+                          appt.status == 'pending' ? 'PENDING APPROVAL' : (appt.status == 'sent_to_professional' ? 'CONFIRMED' : appt.status.toUpperCase()),
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: appt.status == 'upcoming' ? AppColors.primaryBrand : AppColors.success,
+                            color: appt.status == 'pending' ? Colors.orange : (['upcoming', 'sent_to_professional'].contains(appt.status) ? AppColors.primaryBrand : AppColors.success),
                           ),
                         ),
                       )
@@ -99,9 +113,16 @@ class AppointmentsScreen extends ConsumerWidget {
                   const Divider(height: 24),
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundImage: NetworkImage(doc.imageUrl),
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.backgroundLight,
+                        ),
+                        child: ClipOval(
+                          child: _buildProfessionalImage(doc.imageUrl),
+                        ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -123,6 +144,26 @@ class AppointmentsScreen extends ConsumerWidget {
           ),
         );
       },
-    );
+    ),
+  );
+}
+
+  Widget _buildProfessionalImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const Icon(Icons.local_hospital, size: 24, color: AppColors.secondaryText);
+    }
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        String base64Str = imageUrl.split(',').last.replaceAll(RegExp(r'\s+'), '');
+        int padding = base64Str.length % 4;
+        if (padding != 0) base64Str += '=' * (4 - padding);
+        return Image.memory(base64Decode(base64Str), fit: BoxFit.cover, width: 48, height: 48);
+      } catch (e) {
+        return const Icon(Icons.local_hospital, size: 24, color: AppColors.secondaryText);
+      }
+    } else {
+      return Image.network(imageUrl, fit: BoxFit.cover, width: 48, height: 48,
+          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 24, color: AppColors.secondaryText));
+    }
   }
 }

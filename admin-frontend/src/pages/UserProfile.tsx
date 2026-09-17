@@ -31,7 +31,7 @@ const UserProfile = () => {
   if (loading) return <div className="p-8 text-secondaryText">Loading profile...</div>;
   if (!data || !data.user) return <div className="p-8 text-error">User not found.</div>;
 
-  const { user, job_applications, test_attempts, doctor_appointments } = data;
+  const { user, job_applications, test_attempts, professional_appointments } = data;
 
   return (
     <div className="animate-fade-in max-w-6xl mx-auto pb-12">
@@ -108,7 +108,7 @@ const UserProfile = () => {
             <div className="card p-4 flex items-center gap-4 bg-white">
               <div className="p-3 bg-teal-50 text-teal-600 rounded-lg"><Stethoscope size={24} /></div>
               <div>
-                <p className="text-2xl font-bold text-primaryText">{doctor_appointments.length}</p>
+                <p className="text-2xl font-bold text-primaryText">{professional_appointments.length}</p>
                 <p className="text-xs text-secondaryText uppercase tracking-wider font-semibold">Appointments</p>
               </div>
             </div>
@@ -118,7 +118,7 @@ const UserProfile = () => {
             <div className="flex border-b border-border bg-gray-50/50">
               <button onClick={() => setActiveTab('jobs')} className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'jobs' ? 'text-primaryBrand border-b-2 border-primaryBrand bg-white' : 'text-secondaryText hover:text-primaryText'}`}>Job Applications</button>
               <button onClick={() => setActiveTab('tests')} className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'tests' ? 'text-primaryBrand border-b-2 border-primaryBrand bg-white' : 'text-secondaryText hover:text-primaryText'}`}>Test Attempts</button>
-              <button onClick={() => setActiveTab('doctors')} className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'doctors' ? 'text-primaryBrand border-b-2 border-primaryBrand bg-white' : 'text-secondaryText hover:text-primaryText'}`}>Doctor Appointments</button>
+              <button onClick={() => setActiveTab('doctors')} className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'doctors' ? 'text-primaryBrand border-b-2 border-primaryBrand bg-white' : 'text-secondaryText hover:text-primaryText'}`}>Professional Appointments</button>
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 max-h-[500px]">
@@ -159,11 +159,11 @@ const UserProfile = () => {
 
               {activeTab === 'doctors' && (
                 <div className="space-y-4 animate-fade-in">
-                  {doctor_appointments.length === 0 ? <p className="text-secondaryText text-center py-8">No doctor appointments yet.</p> : (
-                    doctor_appointments.map((apt: any) => (
+                  {professional_appointments.length === 0 ? <p className="text-secondaryText text-center py-8">No professional appointments yet.</p> : (
+                    professional_appointments.map((apt: any) => (
                       <div key={apt.id} className="p-4 border border-border rounded-lg flex justify-between items-center hover:bg-gray-50 transition-colors">
                         <div>
-                          <h4 className="font-bold text-primaryText">{apt.doctor?.name || 'Unknown Doctor'}</h4>
+                          <h4 className="font-bold text-primaryText">{apt.doctor?.name || 'Unknown Professional'}</h4>
                           <p className="text-sm text-secondaryText">{apt.appointment_date} at {apt.appointment_time}</p>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium border ${

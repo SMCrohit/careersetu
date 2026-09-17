@@ -24,8 +24,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   }
 
   void _verifyOtp(String mobileNumber, {bool isSignup = false, User? signupData}) async {
-    if (_otpController.text.length != 4) {
-      CustomToast.showError(context, 'Please enter a 4-digit OTP');
+    if (_otpController.text.length != 6) {
+      CustomToast.showError(context, 'Please enter a 6-digit OTP');
       return;
     }
 
@@ -99,7 +99,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               const SizedBox(height: 8),
               RichText(
                 text: TextSpan(
-                  text: 'We sent a 4-digit code to ',
+                  text: 'We sent a 6-digit code to ',
                   style: Theme.of(context).textTheme.bodyLarge,
                   children: [
                     TextSpan(
@@ -114,7 +114,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               Center(
                 child: Pinput(
                   controller: _otpController,
-                  length: 4,
+                  length: 6,
                   defaultPinTheme: defaultPinTheme,
                   focusedPinTheme: focusedPinTheme,
                   onCompleted: (pin) => _verifyOtp(mobileNumber, isSignup: isSignup, signupData: signupData),

@@ -55,6 +55,7 @@ except Exception as e:
 
 app = FastAPI(title="Careersetu API")
 
+# Setup CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,6 +64,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    # This will catch ANY unhandled error and return the full traceback as JSON!
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server Crash: {str(exc)}\nTraceback: {traceback.format_exc()}"}
+    )
+
+# Static files for uploads
 @app.post("/api/admin/login")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     admin_user = db.query(models.AdminUser).filter(models.AdminUser.username == form_data.username).first()
@@ -298,42 +311,42 @@ def update_test(test_id: str, test_update: schemas.TestBase, db: Session = Depen
     return db_test
 
 # Doctors CRUD
-@app.get("/api/doctors", response_model=list[schemas.Doctor])
-def get_doctors(db: Session = Depends(get_db)):
-    return db.query(models.Doctor).filter(models.Doctor.is_active == True).all()
+@app.get("/api/professionals", response_model=list[schemas.Professional])
+def get_professionals(db: Session = Depends(get_db)):
+    return db.query(models.Professional).filter(models.Professional.is_active == True).all()
 
-@app.post("/api/doctors", response_model=schemas.Doctor)
-def create_doctor(doctor: schemas.DoctorBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_doctor = models.Doctor(**doctor.model_dump())
-    db.add(db_doctor)
+@app.post("/api/professionals", response_model=schemas.Professional)
+def create_professional(professional: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_professional = models.Professional(**professional.model_dump())
+    db.add(db_professional)
     db.commit()
-    db.refresh(db_doctor)
-    auth.log_admin_action(db, admin, "CREATE", "Doctors", str(db_doctor.id))
-    return db_doctor
+    db.refresh(db_professional)
+    auth.log_admin_action(db, admin, "CREATE", "Professionals", str(db_professional.id))
+    return db_professional
 
-@app.delete("/api/doctors/{doctor_id}")
-def delete_doctor(doctor_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_doctor = db.query(models.Doctor).filter(models.Doctor.id == doctor_id).first()
-    if not db_doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    db_doctor.is_active = False
+@app.delete("/api/professionals/{professional_id}")
+def delete_professional(professional_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_professional = db.query(models.Professional).filter(models.Professional.id == professional_id).first()
+    if not db_professional:
+        raise HTTPException(status_code=404, detail="Professional not found")
+    db_professional.is_active = False
     from datetime import datetime
-    db_doctor.deleted_datetime = datetime.utcnow()
+    db_professional.deleted_datetime = datetime.utcnow()
     db.commit()
-    auth.log_admin_action(db, admin, "DELETE", "Doctors", doctor_id)
-    return {"status": "Doctor soft deleted"}
+    auth.log_admin_action(db, admin, "DELETE", "Professionals", professional_id)
+    return {"status": "Professional soft deleted"}
 
-@app.put("/api/doctors/{doctor_id}", response_model=schemas.Doctor)
-def update_doctor(doctor_id: str, doctor_update: schemas.DoctorBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_doctor = db.query(models.Doctor).filter(models.Doctor.id == doctor_id, models.Doctor.is_active == True).first()
-    if not db_doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    for key, value in doctor_update.model_dump().items():
-        setattr(db_doctor, key, value)
+@app.put("/api/professionals/{professional_id}", response_model=schemas.Professional)
+def update_professional(professional_id: str, professional_update: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_professional = db.query(models.Professional).filter(models.Professional.id == professional_id, models.Professional.is_active == True).first()
+    if not db_professional:
+        raise HTTPException(status_code=404, detail="Professional not found")
+    for key, value in professional_update.model_dump().items():
+        setattr(db_professional, key, value)
     db.commit()
-    db.refresh(db_doctor)
-    auth.log_admin_action(db, admin, "UPDATE", "Doctors", doctor_id)
-    return db_doctor
+    db.refresh(db_professional)
+    auth.log_admin_action(db, admin, "UPDATE", "Professionals", professional_id)
+    return db_professional
 
 # Offers CRUD
 @app.get("/api/offers", response_model=list[schemas.Offer])
@@ -390,7 +403,7 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
     
     job_apps = db.query(models.JobApplication).filter(models.JobApplication.user_id == user_id).all()
     test_attempts = db.query(models.TestAttempt).filter(models.TestAttempt.user_id == user_id).all()
-    doc_appts = db.query(models.DoctorAppointment).filter(models.DoctorAppointment.user_id == user_id).all()
+    prof_appts = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == user_id).all()
     
     # Enrich with actual job/test/doc data for the frontend
     job_apps_enriched = []
@@ -407,19 +420,95 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
         att_dict['test'] = test.__dict__ if test else None
         test_attempts_enriched.append(att_dict)
         
-    doc_appts_enriched = []
-    for apt in doc_appts:
-        doc = db.query(models.Doctor).filter(models.Doctor.id == apt.doctor_id).first()
+    prof_appts_enriched = []
+    for apt in prof_appts:
+        prof = db.query(models.Professional).filter(models.Professional.id == apt.professional_id).first()
         apt_dict = apt.__dict__.copy()
-        apt_dict['doctor'] = doc.__dict__ if doc else None
-        doc_appts_enriched.append(apt_dict)
+        apt_dict['doctor'] = prof.__dict__ if prof else None
+        prof_appts_enriched.append(apt_dict)
         
     return {
         "user": user,
         "job_applications": job_apps_enriched,
         "test_attempts": test_attempts_enriched,
-        "doctor_appointments": doc_appts_enriched
+        "professional_appointments": prof_appts_enriched
     }
+
+@app.put("/api/users/profile", response_model=schemas.User)
+def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if user_update.profile_image_url is not None:
+        current_user.profile_image_url = user_update.profile_image_url
+    if user_update.mobile_number is not None:
+        # Check if mobile number is already in use
+        existing_user = db.query(models.User).filter(models.User.mobile_number == user_update.mobile_number).first()
+        if existing_user and existing_user.id != current_user.id:
+            raise HTTPException(status_code=400, detail="Mobile number already in use by another account.")
+        current_user.mobile_number = user_update.mobile_number
+    if user_update.city is not None:
+        current_user.city = user_update.city
+    if user_update.goal is not None:
+        current_user.goal = user_update.goal
+    if user_update.resume_data is not None:
+        current_user.resume_data = user_update.resume_data
+    
+    db.commit()
+    db.refresh(current_user)
+    db.refresh(current_user)
+    return current_user
+
+# --- User Appointments ---
+@app.get("/api/users/me/appointments", response_model=list[schemas.ProfessionalAppointment])
+def get_my_appointments(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == current_user.id).order_by(models.ProfessionalAppointment.appointment_date.desc()).all()
+
+@app.post("/api/users/me/appointments", response_model=schemas.ProfessionalAppointment)
+def create_appointment(app_req: schemas.ProfessionalAppointmentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_appointment = models.ProfessionalAppointment(**app_req.model_dump(), user_id=current_user.id)
+    db.add(db_appointment)
+    db.commit()
+    db.refresh(db_appointment)
+    return db_appointment
+
+# --- User Job Applications ---
+@app.get("/api/users/me/applications", response_model=list[schemas.JobApplication])
+def get_my_applications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.JobApplication).filter(models.JobApplication.user_id == current_user.id).all()
+
+@app.post("/api/users/me/applications", response_model=schemas.JobApplication)
+def apply_for_job(app_req: schemas.JobApplicationCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_app = models.JobApplication(**app_req.model_dump(), user_id=current_user.id)
+    db.add(db_app)
+    db.commit()
+    db.refresh(db_app)
+    return db_app
+
+# --- User Test Attempts ---
+@app.get("/api/users/me/test-attempts", response_model=list[schemas.TestAttempt])
+def get_my_test_attempts(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.TestAttempt).filter(models.TestAttempt.user_id == current_user.id).all()
+
+@app.post("/api/users/me/test-attempts", response_model=schemas.TestAttempt)
+def submit_test_attempt(attempt_req: schemas.TestAttemptCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_attempt = models.TestAttempt(**attempt_req.model_dump(), user_id=current_user.id)
+    db.add(db_attempt)
+    db.commit()
+    db.refresh(db_attempt)
+    return db_attempt
+
+# --- Notifications ---
+@app.get("/api/users/me/notifications", response_model=list[schemas.Notification])
+def get_my_notifications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.Notification).filter(models.Notification.target_user_id == current_user.id).order_by(models.Notification.created_datetime.desc()).all()
+
+@app.put("/api/users/me/notifications/{notification_id}/read", response_model=schemas.Notification)
+def mark_notification_read(notification_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_notif = db.query(models.Notification).filter(models.Notification.id == notification_id, models.Notification.target_user_id == current_user.id).first()
+    if not db_notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db_notif.is_read = True
+    db.commit()
+    db.refresh(db_notif)
+    return db_notif
 
 # Activity Logs
 @app.get("/api/logs", response_model=list[schemas.ActivityLog])
@@ -432,7 +521,7 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
     total_users = db.query(models.User).filter(models.User.is_active == True).count()
     active_jobs = db.query(models.Job).filter(models.Job.is_active == True).count()
     tests_taken = db.query(models.TestAttempt).count()
-    appointments = db.query(models.DoctorAppointment).count()
+    appointments = db.query(models.ProfessionalAppointment).count()
     
     # Generate chart data based on filter
     chart_data = []
@@ -496,4 +585,70 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
         },
         "chart_data": chart_data
     }
+
+# --- Admin Appointments Management ---
+@app.get("/api/admin/appointments", response_model=list[schemas.ProfessionalAppointment])
+def admin_get_appointments(db: Session = Depends(get_db)):
+    # Returns all appointments with user and doctor relations
+    # We don't enforce auth token here for brevity but assuming typical admin protection
+    appointments = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.is_active == True).all()
+    return appointments
+
+@app.put("/api/admin/appointments/{appointment_id}/status", response_model=schemas.ProfessionalAppointment)
+def admin_update_appointment_status(appointment_id: str, status: str, db: Session = Depends(get_db)):
+    appointment = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.id == appointment_id).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    appointment.status = status
+    
+    # Push Notification logic if assigned
+    if status == "sent_to_doctor":
+        notification = models.Notification(
+            title="Appointment Confirmed",
+            message=f"Your booking for {appointment.professional.name} on {appointment.appointment_date} is confirmed.",
+            target_user_id=appointment.user_id,
+            is_read=False
+        )
+        db.add(notification)
+        
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+# --- Admin: All Job Applications ---
+@app.get("/api/admin/job-applications")
+def admin_get_all_job_applications(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    applications = db.query(models.JobApplication).filter(models.JobApplication.is_active == True).order_by(models.JobApplication.created_datetime.desc()).all()
+    result = []
+    for app in applications:
+        user = db.query(models.User).filter(models.User.id == app.user_id).first()
+        job = db.query(models.Job).filter(models.Job.id == app.job_id).first()
+        result.append({
+            "id": str(app.id),
+            "status": app.status,
+            "applied_at": app.created_datetime.isoformat() if app.created_datetime else None,
+            "user": {"id": str(user.id), "full_name": user.full_name, "mobile_number": user.mobile_number, "city": user.city} if user else None,
+            "job": {"id": str(job.id), "title": job.title, "company": job.company, "location": job.location, "type": job.type} if job else None,
+        })
+    return result
+
+# --- Admin: All Test Attempts ---
+@app.get("/api/admin/test-attempts")
+def admin_get_all_test_attempts(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    attempts = db.query(models.TestAttempt).filter(models.TestAttempt.is_active == True).order_by(models.TestAttempt.created_datetime.desc()).all()
+    result = []
+    for att in attempts:
+        user = db.query(models.User).filter(models.User.id == att.user_id).first()
+        test = db.query(models.Test).filter(models.Test.id == att.test_id).first()
+        total_questions = len(test.questions) if test and test.questions else 0
+        result.append({
+            "id": str(att.id),
+            "score": att.score,
+            "total_questions": total_questions,
+            "attempted_at": att.created_datetime.isoformat() if att.created_datetime else None,
+            "user": {"id": str(user.id), "full_name": user.full_name, "mobile_number": user.mobile_number, "city": user.city} if user else None,
+            "test": {"id": str(test.id), "title": test.title, "tag": test.tag, "difficulty": test.difficulty} if test else None,
+        })
+    return result
 

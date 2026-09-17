@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide User;
 import '../../data/auth_repository.dart';
 import '../../domain/user_model.dart';
@@ -217,6 +218,56 @@ class AuthNotifier extends Notifier<AuthState> {
   Future<void> logout() async {
     await TokenStorage.deleteToken();
     state = AuthState(isInitialCheckDone: true);
+  }
+
+  Future<bool> updateProfileImage(String base64Image) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final repo = ref.read(authRepositoryProvider);
+      final updatedUser = await repo.updateProfileImage(base64Image);
+      if (updatedUser != null) {
+        await TokenStorage.saveUser(updatedUser.toJson());
+        state = state.copyWith(isLoading: false, currentUser: updatedUser);
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false, error: "Failed to update profile image");
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      return false;
+    }
+  }
+
+  Future<bool> updateProfileDetails(
+    Map<String, dynamic> data, {
+    CancelToken? cancelToken,
+    ProgressCallback? onSendProgress,
+  }) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final repo = ref.read(authRepositoryProvider);
+      final updatedUser = await repo.updateProfileDetails(
+        data,
+        cancelToken: cancelToken,
+        onSendProgress: onSendProgress,
+      );
+      if (updatedUser != null) {
+        await TokenStorage.saveUser(updatedUser.toJson());
+        state = state.copyWith(isLoading: false, currentUser: updatedUser);
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false, error: "Failed to update profile details");
+        return false;
+      }
+    } catch (e) {
+      if (e is DioException && CancelToken.isCancel(e)) {
+        state = state.copyWith(isLoading: false);
+        return false;
+      }
+      state = state.copyWith(isLoading: false, error: e.toString());
+      return false;
+    }
   }
 }
 

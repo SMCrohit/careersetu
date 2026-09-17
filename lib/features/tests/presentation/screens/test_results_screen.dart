@@ -16,8 +16,8 @@ class TestResultsScreen extends ConsumerWidget {
     final attempted = state.selectedAnswers.length;
     final incorrect = attempted - correct;
     final accuracy = attempted > 0 ? (correct / attempted * 100).toInt() : 0;
-    final totalScore = correct * 10;
-    final maxScore = total * 10;
+    final totalScore = correct;
+    final maxScore = total;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -28,8 +28,9 @@ class TestResultsScreen extends ConsumerWidget {
         title: const Text('Test Results', style: TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: AppColors.primaryText),
       ),
-      body: SingleChildScrollView(
-        child: Column(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Top Section
@@ -55,7 +56,6 @@ class TestResultsScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Rank: 4,512 / 24,000', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
                 ],
               ),
             ),
@@ -107,25 +107,6 @@ class TestResultsScreen extends ConsumerWidget {
               ),
             ),
             
-            const Divider(height: 1, thickness: 1, color: AppColors.border),
-            
-            // Sectional Analysis (Mocked)
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Sectional Analysis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 16),
-                  _buildSectionBar('Algorithms & Logic', 75),
-                  _buildSectionBar('Core Concepts', 90),
-                  _buildSectionBar('Problem Solving', 60),
-                ],
-              ),
-            ),
-            
-            const Divider(height: 1, thickness: 1, color: AppColors.border),
-            
             const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -137,6 +118,7 @@ class TestResultsScreen extends ConsumerWidget {
             const SizedBox(height: 48),
           ],
         ),
+      ),
       ),
     );
   }
@@ -281,34 +263,6 @@ class TestResultsScreen extends ConsumerWidget {
             Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSectionBar(String title, int percentage) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-              Text('$percentage%', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: percentage / 100,
-              backgroundColor: const Color(0xFFE0E0E0),
-              color: AppColors.primaryBrand,
-              minHeight: 8,
-            ),
-          )
-        ],
       ),
     );
   }

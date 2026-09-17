@@ -9,7 +9,7 @@ class AppliedJobsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final appliedJobs = ref.watch(appliedJobsProvider);
+    final appliedJobsAsync = ref.watch(appliedJobsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -19,9 +19,24 @@ class AppliedJobsScreen extends ConsumerWidget {
         elevation: 1,
         iconTheme: const IconThemeData(color: AppColors.primaryBrand),
       ),
-      body: appliedJobs.isEmpty
-          ? const Center(child: Text("You haven't applied to any jobs yet."))
-          : ListView.builder(
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await ref.refresh(appliedJobsProvider.future);
+        },
+        child: appliedJobsAsync.when(
+          data: (appliedJobs) {
+            if (appliedJobs.isEmpty) {
+              return SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                child: Container(
+                  height: MediaQuery.of(context).size.height - kToolbarHeight,
+                  alignment: Alignment.center,
+                  child: const Text("You haven't applied to any jobs yet."),
+                ),
+              );
+            }
+            return ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
               padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
               itemCount: appliedJobs.length,
               itemBuilder: (context, index) {
@@ -69,7 +84,12 @@ class AppliedJobsScreen extends ConsumerWidget {
                   ),
                 );
               },
-            ),
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, stack) => const Center(child: Text('Failed to load applied jobs')),
+        ),
+      ),
     );
   }
 }

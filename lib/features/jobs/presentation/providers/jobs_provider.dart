@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/jobs_repository.dart';
 import '../../domain/job_model.dart';
+import '../../../../core/api/api_client.dart';
 
 class JobSearchQueryNotifier extends Notifier<String> {
   @override
@@ -69,19 +70,52 @@ final jobsProvider = AsyncNotifierProvider<JobsNotifier, List<JobModel>>(() {
   return JobsNotifier();
 });
 
-class AppliedJobsNotifier extends Notifier<List<JobModel>> {
+class AppliedJobsNotifier extends AsyncNotifier<List<JobModel>> {
   @override
-  List<JobModel> build() {
-    return [];
+  Future<List<JobModel>> build() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final response = await apiClient.get('/users/me/applications');
+      // The API returns a list of JobApplication objects which have a nested `job`
+      return (response.data as List).map((json) {
+        if (json['job'] != null) {
+          return JobModel.fromJson(json['job']);
+        }
+        return JobModel(
+          id: json['job_id'] ?? '',
+          title: 'Unknown Job',
+          company: '',
+          location: '',
+          salary: '',
+          type: '',
+          level: '',
+          description: '',
+          requirements: [],
+          postedTime: '',
+          applicants: '',
+        );
+      }).toList();
+    } catch (e) {
+      return [];
+    }
   }
 
-  void applyJob(JobModel job) {
-    if (!state.any((j) => j.id == job.id)) {
-      state = [...state, job];
+  Future<void> applyJob(JobModel job) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      await apiClient.post('/users/me/applications', data: {
+        'job_id': job.id,
+        'status': 'applied',
+      });
+      if (state.value != null && !state.value!.any((j) => j.id == job.id)) {
+        state = AsyncData([...state.value!, job]);
+      }
+    } catch (e) {
+      // Handle implicitly
     }
   }
 }
 
-final appliedJobsProvider = NotifierProvider<AppliedJobsNotifier, List<JobModel>>(() {
+final appliedJobsProvider = AsyncNotifierProvider<AppliedJobsNotifier, List<JobModel>>(() {
   return AppliedJobsNotifier();
 });

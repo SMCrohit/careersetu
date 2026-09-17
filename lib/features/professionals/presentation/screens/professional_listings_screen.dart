@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../providers/doctors_provider.dart';
-import 'doctor_details_screen.dart';
+import 'dart:convert';
+import '../providers/professionals_provider.dart';
+import 'professional_details_screen.dart';
 
-class DoctorListingsScreen extends ConsumerStatefulWidget {
-  const DoctorListingsScreen({super.key});
+class ProfessionalListingsScreen extends ConsumerStatefulWidget {
+  final String? filterProfession;
+  const ProfessionalListingsScreen({super.key, this.filterProfession});
 
   @override
-  ConsumerState<DoctorListingsScreen> createState() => _DoctorListingsScreenState();
+  ConsumerState<ProfessionalListingsScreen> createState() => _ProfessionalListingsScreenState();
 }
 
-class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
+class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListingsScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -21,7 +23,7 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
     super.initState();
     _scrollController.addListener(() {
       if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-        ref.read(doctorsProvider.notifier).fetchMore();
+        ref.read(professionalsProvider.notifier).fetchMore();
       }
     });
   }
@@ -35,8 +37,12 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final doctorsState = ref.watch(doctorsProvider);
-    final notifier = ref.read(doctorsProvider.notifier);
+    final professionalsState = ref.watch(professionalsProvider);
+    final notifier = ref.read(professionalsProvider.notifier);
+
+    String title = 'Professional Directory';
+    if (widget.filterProfession == 'Doctor') title = 'Doctors Directory';
+    else if (widget.filterProfession == 'Professional') title = 'Professionals Directory';
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -49,12 +55,12 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
                 controller: _searchController,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  hintText: 'Search doctors, specialties...',
+                  hintText: 'Search professionals, specialties...',
                   border: InputBorder.none,
                 ),
-                onChanged: (val) => ref.read(doctorSearchQueryProvider.notifier).updateQuery(val),
+                onChanged: (val) => ref.read(professionalSearchQueryProvider.notifier).updateQuery(val),
               )
-            : const Text('Doctor Directory', style: TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
+            : Text(title, style: const TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: Icon(_isSearching ? Icons.close : Icons.search, color: AppColors.primaryText),
@@ -63,7 +69,7 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
                 if (_isSearching) {
                   _isSearching = false;
                   _searchController.clear();
-                  ref.read(doctorSearchQueryProvider.notifier).updateQuery('');
+                  ref.read(professionalSearchQueryProvider.notifier).updateQuery('');
                 } else {
                   _isSearching = true;
                 }
@@ -72,28 +78,47 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
           )
         ],
       ),
-      body: doctorsState.when(
-        data: (doctors) {
-          if (doctors.isEmpty) {
-            return const Center(child: Text('No doctors found.', style: TextStyle(color: AppColors.secondaryText)));
+      body: professionalsState.when(
+        data: (allProfessionals) {
+          var professionals = allProfessionals;
+          if (widget.filterProfession == 'Doctor') {
+            professionals = professionals.where((p) => p.profession == 'Doctor').toList();
+          } else if (widget.filterProfession == 'Professional') {
+            professionals = professionals.where((p) => p.profession != 'Doctor').toList();
+          }
+          if (professionals.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: () async {
+                await notifier.refresh();
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                child: Container(
+                  height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
+                  alignment: Alignment.center,
+                  child: const Text('No professionals found.', style: TextStyle(color: AppColors.secondaryText)),
+                ),
+              ),
+            );
           }
           return RefreshIndicator(
             onRefresh: () async {
               await notifier.refresh();
             },
             child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
               controller: _scrollController,
               padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
-              itemCount: doctors.length + (notifier.hasMore ? 1 : 0),
+              itemCount: professionals.length + (notifier.hasMore ? 1 : 0),
               itemBuilder: (context, index) {
-                if (index == doctors.length) {
+                if (index == professionals.length) {
                   return const Padding(
                     padding: EdgeInsets.all(16.0),
                     child: Center(child: CircularProgressIndicator(color: AppColors.primaryBrand)),
                   );
                 }
                 
-                final doc = doctors[index];
+                final doc = professionals[index];
                 return Card(
                   margin: const EdgeInsets.only(bottom: 16),
                   color: AppColors.white,
@@ -104,7 +129,7 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => DoctorDetailsScreen(doctor: doc)),
+                        MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(professional: doc)),
                       );
                     },
                     child: Padding(
@@ -115,10 +140,16 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              CircleAvatar(
-                                radius: 30,
-                                backgroundImage: NetworkImage(doc.imageUrl),
-                                onBackgroundImageError: (_, __) => const Icon(Icons.person),
+                              Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.backgroundLight,
+                                ),
+                                child: ClipOval(
+                                  child: _buildProfessionalImage(doc.imageUrl),
+                                ),
                               ),
                               const SizedBox(width: 16),
                               Expanded(
@@ -168,5 +199,18 @@ class _DoctorListingsScreenState extends ConsumerState<DoctorListingsScreen> {
         Text(text, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
       ],
     );
+  }
+
+  Widget _buildProfessionalImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const Icon(Icons.local_hospital, size: 30, color: AppColors.secondaryText);
+    }
+    if (imageUrl.startsWith('data:image')) {
+      final base64String = imageUrl.split(',').last;
+      return Image.memory(base64Decode(base64String), fit: BoxFit.cover, width: 60, height: 60);
+    } else {
+      return Image.network(imageUrl, fit: BoxFit.cover, width: 60, height: 60,
+          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 30, color: AppColors.secondaryText));
+    }
   }
 }

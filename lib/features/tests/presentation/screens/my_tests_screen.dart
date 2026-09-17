@@ -12,7 +12,7 @@ class MyTestsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final testsAsync = ref.watch(allTestsProvider);
-    final completedTests = ref.watch(completedTestsProvider);
+    final completedTestsAsync = ref.watch(completedTestsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -22,29 +22,52 @@ class MyTestsScreen extends ConsumerWidget {
         elevation: 1,
         iconTheme: const IconThemeData(color: AppColors.primaryBrand),
       ),
-      body: testsAsync.when(
-        data: (tests) {
-          final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
-          
-          if (myAttempts.isEmpty) return const Center(child: Text("You haven't taken any tests yet."));
-          
-          return ListView.builder(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
-            itemCount: myAttempts.length,
-            itemBuilder: (context, index) {
-              final test = myAttempts[index];
-              return _buildTestCard(
-                context: context,
-                ref: ref,
-                test: test,
-                isCompleted: true,
-                score: completedTests[test.id],
-              );
-            },
-          );
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(allTestsProvider);
+          ref.invalidate(completedTestsProvider);
+          await Future.delayed(const Duration(milliseconds: 500));
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(child: Text('Error: $e')),
+        child: testsAsync.when(
+          data: (tests) {
+            return completedTestsAsync.when(
+              data: (completedTests) {
+                final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
+                
+                if (myAttempts.isEmpty) {
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                    child: Container(
+                      height: MediaQuery.of(context).size.height - kToolbarHeight,
+                      alignment: Alignment.center,
+                      child: const Text("You haven't taken any tests yet."),
+                    ),
+                  );
+                }
+                
+                return ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
+                  itemCount: myAttempts.length,
+                  itemBuilder: (context, index) {
+                    final test = myAttempts[index];
+                    return _buildTestCard(
+                      context: context,
+                      ref: ref,
+                      test: test,
+                      isCompleted: true,
+                      score: completedTests[test.id],
+                    );
+                  },
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, st) => const Center(child: Text('Failed to load completed tests')),
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, st) => Center(child: Text('Error: $e')),
+        ),
       ),
     );
   }

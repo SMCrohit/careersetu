@@ -14,7 +14,7 @@ class MockTestDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final testsAsync = ref.watch(allTestsProvider);
-    final completedTests = ref.watch(completedTestsProvider);
+    final completedTestsAsync = ref.watch(completedTestsProvider);
 
     return DefaultTabController(
       length: 2,
@@ -40,14 +40,20 @@ class MockTestDetailsScreen extends ConsumerWidget {
           data: (tests) {
             if (tests.isEmpty) return const Center(child: Text("No tests found."));
             
-            final availableTests = tests.where((t) => !completedTests.containsKey(t.id)).toList();
-            final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
+            return completedTestsAsync.when(
+              data: (completedTests) {
+                final availableTests = tests.where((t) => !completedTests.containsKey(t.id)).toList();
+                final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
 
-            return TabBarView(
-              children: [
-                _buildAvailableTests(context, ref, availableTests),
-                _buildMyAttempts(context, ref, myAttempts, completedTests),
-              ],
+                return TabBarView(
+                  children: [
+                    _buildAvailableTests(context, ref, availableTests),
+                    _buildMyAttempts(context, ref, myAttempts, completedTests),
+                  ],
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, st) => Center(child: Text('Failed to load tests')),
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -58,39 +64,85 @@ class MockTestDetailsScreen extends ConsumerWidget {
   }
 
   Widget _buildAvailableTests(BuildContext context, WidgetRef ref, List<TestModel> tests) {
-    if (tests.isEmpty) return const Center(child: Text("You've taken all available tests!"));
+    Future<void> onRefresh() async {
+      ref.invalidate(allTestsProvider);
+      ref.invalidate(completedTestsProvider);
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    if (tests.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5,
+              child: const Center(child: Text("You've taken all available tests!")),
+            ),
+          ],
+        ),
+      );
+    }
     
-    return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount: tests.length,
-      itemBuilder: (context, index) {
-        final test = tests[index];
-        return _buildTestCard(
-          context: context,
-          ref: ref,
-          test: test,
-          isCompleted: false,
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        itemCount: tests.length,
+        itemBuilder: (context, index) {
+          final test = tests[index];
+          return _buildTestCard(
+            context: context,
+            ref: ref,
+            test: test,
+            isCompleted: false,
+          );
+        },
+      ),
     );
   }
 
   Widget _buildMyAttempts(BuildContext context, WidgetRef ref, List<TestModel> tests, Map<String, int> completedTests) {
-    if (tests.isEmpty) return const Center(child: Text("You haven't taken any tests yet."));
+    Future<void> onRefresh() async {
+      ref.invalidate(allTestsProvider);
+      ref.invalidate(completedTestsProvider);
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    if (tests.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5,
+              child: const Center(child: Text("You haven't taken any tests yet.")),
+            ),
+          ],
+        ),
+      );
+    }
     
-    return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount: tests.length,
-      itemBuilder: (context, index) {
-        final test = tests[index];
-        return _buildTestCard(
-          context: context,
-          ref: ref,
-          test: test,
-          isCompleted: true,
-          score: completedTests[test.id],
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        itemCount: tests.length,
+        itemBuilder: (context, index) {
+          final test = tests[index];
+          return _buildTestCard(
+            context: context,
+            ref: ref,
+            test: test,
+            isCompleted: true,
+            score: completedTests[test.id],
+          );
+        },
+      ),
     );
   }
 

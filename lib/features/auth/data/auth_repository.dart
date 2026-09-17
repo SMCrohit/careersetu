@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
 import '../domain/user_model.dart';
 import '../../jobs/data/jobs_repository.dart'; // to get apiClientProvider
@@ -57,6 +58,38 @@ class AuthRepository {
     try {
       final response = await _apiClient.post('/auth/signup', data: user.toJson());
       return response.data; // Expected {access_token, token_type, user}
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<User?> updateProfileImage(String base64Image) async {
+    try {
+      final response = await _apiClient.put('/users/profile', data: {
+        'profile_image_url': base64Image
+      });
+      return User.fromJson(response.data);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<User?> updateProfileDetails(
+    Map<String, dynamic> data, {
+    CancelToken? cancelToken,
+    ProgressCallback? onSendProgress,
+  }) async {
+    try {
+      final response = await _apiClient.put(
+        '/users/profile',
+        data: data,
+        cancelToken: cancelToken,
+        onSendProgress: onSendProgress,
+      );
+      return User.fromJson(response.data);
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) rethrow;
+      return null;
     } catch (e) {
       return null;
     }

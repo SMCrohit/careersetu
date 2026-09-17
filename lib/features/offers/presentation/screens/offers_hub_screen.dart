@@ -64,8 +64,13 @@ class _OffersHubScreenState extends ConsumerState<OffersHubScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await ref.refresh(offersProvider.future);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -153,8 +158,9 @@ class _OffersHubScreenState extends ConsumerState<OffersHubScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildScratchCard(List<Color> colors, String content, bool isHidden, BuildContext context) {
     return RewardScratchCard(

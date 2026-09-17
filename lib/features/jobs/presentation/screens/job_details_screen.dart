@@ -13,6 +13,9 @@ class JobDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final appliedJobsState = ref.watch(appliedJobsProvider);
+    final hasApplied = appliedJobsState.value?.any((j) => j.id == job.id) ?? false;
+
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(
@@ -136,8 +139,9 @@ class JobDetailsScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: PrimaryButton(
-                    text: 'Apply Now',
-                    onPressed: () {
+                    text: hasApplied ? 'Already Applied' : 'Apply Now',
+                    backgroundColor: hasApplied ? Colors.grey.shade400 : AppColors.primaryBrand,
+                    onPressed: hasApplied ? null : () {
                       ref.read(appliedJobsProvider.notifier).applyJob(job);
                       CustomToast.showSuccess(context, 'Application submitted to ${job.company}!');
                       Navigator.pop(context);

@@ -16,7 +16,7 @@ class QuestionModel {
       id: json['id'] as String,
       text: json['text'] as String,
       options: List<String>.from(json['options'] ?? []),
-      correctAnswerIndex: json['correctAnswerIndex'] as int,
+      correctAnswerIndex: json['correctAnswerIndex'] as int? ?? json['correct_answer_index'] as int? ?? 0,
     );
   }
 }

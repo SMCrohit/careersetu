@@ -3,19 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_toast.dart';
-import '../../domain/doctor_model.dart';
+import '../../domain/professional_model.dart';
 import '../../../appointments/presentation/providers/appointments_provider.dart';
+import 'dart:convert';
 import 'package:intl/intl.dart';
 
-class DoctorDetailsScreen extends ConsumerStatefulWidget {
-  final Doctor doctor;
-  const DoctorDetailsScreen({super.key, required this.doctor});
+class ProfessionalDetailsScreen extends ConsumerStatefulWidget {
+  final Professional professional;
+  const ProfessionalDetailsScreen({super.key, required this.professional});
 
   @override
-  ConsumerState<DoctorDetailsScreen> createState() => _DoctorDetailsScreenState();
+  ConsumerState<ProfessionalDetailsScreen> createState() => _ProfessionalDetailsScreenState();
 }
 
-class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
+class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsScreen> {
   String? selectedTime;
   late DateTime selectedDate;
   late List<DateTime> availableDates;
@@ -31,7 +32,7 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final doc = widget.doctor;
+    final doc = widget.professional;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -39,7 +40,7 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
         backgroundColor: AppColors.white,
         elevation: 1,
         iconTheme: const IconThemeData(color: AppColors.primaryText),
-        title: const Text('Doctor Profile', style: TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
+        title: Text(doc.profession == 'Doctor' ? 'Doctor Profile' : '${doc.profession} Profile', style: const TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -53,9 +54,16 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
                   Center(
                     child: Column(
                       children: [
-                        CircleAvatar(
-                          radius: 50,
-                          backgroundImage: NetworkImage(doc.imageUrl),
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.backgroundLight,
+                          ),
+                          child: ClipOval(
+                            child: _buildProfessionalImage(doc.imageUrl),
+                          ),
                         ),
                         const SizedBox(height: 16),
                         Text(doc.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
@@ -87,7 +95,7 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('About Doctor', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                  const Text('About Professional', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
                   const SizedBox(height: 12),
                   Text(
                     '${doc.name} is a highly experienced ${doc.specialty} at ${doc.clinic}. They specialize in providing holistic care and have a proven track record of successful treatments. Their approach combines modern medical practices with compassionate patient care.',
@@ -207,11 +215,10 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 100), // padding for sticky bottom bar
           ],
         ),
       ),
-      bottomSheet: Container(
+      bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: AppColors.white,
           border: Border(top: BorderSide(color: AppColors.border)),
@@ -264,5 +271,18 @@ class _DoctorDetailsScreenState extends ConsumerState<DoctorDetailsScreen> {
         Text(value, style: const TextStyle(color: AppColors.primaryText, fontSize: 16, fontWeight: FontWeight.bold)),
       ],
     );
+  }
+
+  Widget _buildProfessionalImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const Icon(Icons.local_hospital, size: 50, color: AppColors.secondaryText);
+    }
+    if (imageUrl.startsWith('data:image')) {
+      final base64String = imageUrl.split(',').last;
+      return Image.memory(base64Decode(base64String), fit: BoxFit.cover, width: 100, height: 100);
+    } else {
+      return Image.network(imageUrl, fit: BoxFit.cover, width: 100, height: 100,
+          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 50, color: AppColors.secondaryText));
+    }
   }
 }

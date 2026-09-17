@@ -18,6 +18,14 @@ class UserBase(BaseModel):
     city: str
     goal: str
     resume_data: Optional[Any] = None
+    profile_image_url: Optional[str] = None
+
+class UserProfileUpdate(BaseModel):
+    profile_image_url: Optional[str] = None
+    mobile_number: Optional[str] = None
+    city: Optional[str] = None
+    goal: Optional[str] = None
+    resume_data: Optional[Any] = None
 
 class User(UserBase, ORMBase):
     pass
@@ -61,14 +69,16 @@ class TestBase(BaseModel):
 class TestModel(TestBase, ORMBase):
     pass
 
-class DoctorBase(BaseModel):
+class ProfessionalBase(BaseModel):
     name: str
+    profession: str = "Doctor"
     specialty: str
     clinic: str
     experience: str
     consultation_fee: float
+    image_url: Optional[str] = None
 
-class Doctor(DoctorBase, ORMBase):
+class Professional(ProfessionalBase, ORMBase):
     pass
 
 class OfferBase(BaseModel):
@@ -105,6 +115,10 @@ class JobApplicationBase(BaseModel):
     job_id: UUID
     status: str
 
+class JobApplicationCreate(BaseModel):
+    job_id: UUID
+    status: str = "applied"
+
 class JobApplication(JobApplicationBase, ORMBase):
     job: Optional[Job] = None
 
@@ -113,24 +127,35 @@ class TestAttemptBase(BaseModel):
     test_id: UUID
     score: float
 
+class TestAttemptCreate(BaseModel):
+    test_id: UUID
+    score: float
+
 class TestAttempt(TestAttemptBase, ORMBase):
     test: Optional[TestModel] = None
 
-class DoctorAppointmentBase(BaseModel):
+class ProfessionalAppointmentBase(BaseModel):
     user_id: UUID
-    doctor_id: UUID
+    professional_id: UUID
     appointment_date: str
     appointment_time: str
     status: str
 
-class DoctorAppointment(DoctorAppointmentBase, ORMBase):
-    doctor: Optional[Doctor] = None
+class ProfessionalAppointmentCreate(BaseModel):
+    professional_id: UUID
+    appointment_date: str
+    appointment_time: str
+    status: str = "pending"
+
+class ProfessionalAppointment(ProfessionalAppointmentBase, ORMBase):
+    professional: Optional[Professional] = None
+    user: Optional[UserBase] = None
 
 class UserProfileDetails(BaseModel):
     user: User
     job_applications: List[JobApplication] = []
     test_attempts: List[TestAttempt] = []
-    doctor_appointments: List[DoctorAppointment] = []
+    professional_appointments: List[ProfessionalAppointment] = []
 
 class OTPRequest(BaseModel):
     mobile_number: str

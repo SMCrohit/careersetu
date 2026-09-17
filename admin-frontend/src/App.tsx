@@ -5,13 +5,17 @@ import Login from './pages/Login';
 import Jobs from './pages/Jobs';
 import Tests from './pages/Tests';
 import TestQuestions from './pages/TestQuestions';
-import Doctors from './pages/Doctors';
+import Professionals from './pages/Professionals';
 import Offers from './pages/Offers';
 import Banners from './pages/Banners';
 import Notifications from './pages/Notifications';
 import Users from './pages/Users';
 import UserProfile from './pages/UserProfile';
 import ActivityLogs from './pages/ActivityLogs';
+import Appointments from './pages/Appointments';
+import AppliedJobs from './pages/AppliedJobs';
+import AttemptedTests from './pages/AttemptedTests';
+import ClaimedOffers from './pages/ClaimedOffers';
 import { ToastProvider } from './context/ToastContext';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -35,10 +39,14 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
+          <Route path="/jobs/applied" element={<ProtectedRoute><AppliedJobs /></ProtectedRoute>} />
           <Route path="/tests" element={<ProtectedRoute><Tests /></ProtectedRoute>} />
+          <Route path="/tests/attempted" element={<ProtectedRoute><AttemptedTests /></ProtectedRoute>} />
           <Route path="/tests/:id/questions" element={<ProtectedRoute><TestQuestions /></ProtectedRoute>} />
-          <Route path="/doctors" element={<ProtectedRoute><Doctors /></ProtectedRoute>} />
+          <Route path="/professionals" element={<ProtectedRoute><Professionals /></ProtectedRoute>} />
+          <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
           <Route path="/offers" element={<ProtectedRoute><Offers /></ProtectedRoute>} />
+          <Route path="/offers/claimed" element={<ProtectedRoute><ClaimedOffers /></ProtectedRoute>} />
           <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />

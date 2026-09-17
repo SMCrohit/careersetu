@@ -81,14 +81,26 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
             child: jobsAsyncValue.when(
               data: (jobs) {
                 if (jobs.isEmpty) {
-                  return const Center(child: Text("No jobs found."));
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      await ref.refresh(jobsProvider.future);
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                      child: Container(
+                        height: MediaQuery.of(context).size.height - kToolbarHeight - 150,
+                        alignment: Alignment.center,
+                        child: const Text("No jobs found."),
+                      ),
+                    ),
+                  );
                 }
                 return RefreshIndicator(
                   onRefresh: () async {
-                    // ignore: unused_result
-                    ref.refresh(jobsProvider);
+                    await ref.refresh(jobsProvider.future);
                   },
                   child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                     controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     itemCount: jobs.length + (ref.read(jobsProvider.notifier).hasMore ? 1 : 0),

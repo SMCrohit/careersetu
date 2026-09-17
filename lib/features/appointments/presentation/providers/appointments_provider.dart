@@ -1,44 +1,39 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/appointment_model.dart';
-import '../../../doctors/domain/doctor_model.dart';
+import '../../../professionals/domain/professional_model.dart';
+import '../../../jobs/data/jobs_repository.dart'; // to get apiClientProvider
 
-class AppointmentsNotifier extends Notifier<List<Appointment>> {
+class AppointmentsNotifier extends AsyncNotifier<List<Appointment>> {
   @override
-  List<Appointment> build() {
-    // Return some mock past appointments
-    return [
-      Appointment(
-        id: 'app_001',
-        doctor: Doctor(
-          id: 'doc_past_1',
-          name: 'Dr. Neha Sharma',
-          specialty: 'Clinical Psychologist',
-          clinic: 'Mind Wellness Center',
-          experienceYears: 8,
-          rating: 4.8,
-          reviews: 120,
-          consultationFee: 1500,
-          imageUrl: 'https://randomuser.me/api/portraits/women/44.jpg',
-        ),
-        date: '10 Aug 2026',
-        time: '02:00 PM',
-        status: 'completed',
-      ),
-    ];
+  Future<List<Appointment>> build() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final response = await apiClient.get('/users/me/appointments');
+      return (response.data as List).map((json) => Appointment.fromJson(json)).toList();
+    } catch (e) {
+      return [];
+    }
   }
 
-  void bookAppointment(Doctor doctor, String date, String time) {
-    final newAppt = Appointment(
-      id: 'app_${DateTime.now().millisecondsSinceEpoch}',
-      doctor: doctor,
-      date: date,
-      time: time,
-      status: 'upcoming',
-    );
-    state = [newAppt, ...state];
+  Future<void> bookAppointment(Professional professional, String date, String time) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final response = await apiClient.post('/users/me/appointments', data: {
+        'professional_id': professional.id,
+        'appointment_date': date,
+        'appointment_time': time,
+        'status': 'pending',
+      });
+      final newAppt = Appointment.fromJson(response.data);
+      if (state.value != null) {
+        state = AsyncData([newAppt, ...state.value!]);
+      }
+    } catch (e) {
+      // Handle error implicitly
+    }
   }
 }
 
-final appointmentsProvider = NotifierProvider<AppointmentsNotifier, List<Appointment>>(() {
+final appointmentsProvider = AsyncNotifierProvider<AppointmentsNotifier, List<Appointment>>(() {
   return AppointmentsNotifier();
 });

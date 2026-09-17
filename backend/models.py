@@ -20,6 +20,7 @@ class User(BaseModel):
     city = Column(String)
     goal = Column(String)
     resume_data = Column(JSON, nullable=True)
+    profile_image_url = Column(Text, nullable=True)
 
 class AdminUser(BaseModel):
     __tablename__ = "admin_users"
@@ -52,13 +53,15 @@ class Test(BaseModel):
     max_discount_percentage = Column(Integer)
     questions = Column(JSON, default=[])
 
-class Doctor(BaseModel):
-    __tablename__ = "doctors"
+class Professional(BaseModel):
+    __tablename__ = "professionals"
     name = Column(String, index=True)
+    profession = Column(String, default="Doctor")
     specialty = Column(String)
     clinic = Column(String)
     experience = Column(String)
     consultation_fee = Column(Float)
+    image_url = Column(Text, nullable=True)
 
 class Offer(BaseModel):
     __tablename__ = "offers"
@@ -88,6 +91,7 @@ class JobApplication(BaseModel):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"))
     status = Column(String)
+    job = relationship("Job")
 
 class TestAttempt(BaseModel):
     __tablename__ = "test_attempts"
@@ -95,13 +99,16 @@ class TestAttempt(BaseModel):
     test_id = Column(UUID(as_uuid=True), ForeignKey("tests.id"))
     score = Column(Float)
 
-class DoctorAppointment(BaseModel):
-    __tablename__ = "doctor_appointments"
+class ProfessionalAppointment(BaseModel):
+    __tablename__ = "professional_appointments"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"))
+    professional_id = Column(UUID(as_uuid=True), ForeignKey("professionals.id"))
     appointment_date = Column(String)
     appointment_time = Column(String)
     status = Column(String)
+
+    user = relationship("User")
+    professional = relationship("Professional")
 
 class GameSession(BaseModel):
     __tablename__ = "game_sessions"

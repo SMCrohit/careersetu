@@ -5,15 +5,16 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/navigation_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../doctors/presentation/screens/doctor_listings_screen.dart';
-import '../../../doctors/presentation/screens/doctor_details_screen.dart';
-import '../../../doctors/domain/doctor_model.dart';
+import '../../../professionals/presentation/screens/professional_listings_screen.dart';
+import '../../../professionals/presentation/screens/professional_details_screen.dart';
+import '../../../professionals/domain/professional_model.dart';
 import '../../../jobs/presentation/screens/applied_jobs_screen.dart';
 import '../../../appointments/presentation/screens/appointments_screen.dart';
 import '../../../tests/presentation/screens/my_tests_screen.dart';
 import '../../../offers/presentation/screens/offers_hub_screen.dart';
-import '../../../doctors/presentation/providers/doctors_provider.dart';
+import '../../../professionals/presentation/providers/professionals_provider.dart';
 import '../providers/banners_provider.dart';
+import 'dart:convert';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -50,9 +51,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padding: const EdgeInsets.all(8.0),
           child: GestureDetector(
             onTap: () => Navigator.pushNamed(context, '/profile'),
-            child: const CircleAvatar(
-              backgroundColor: AppColors.white,
-              child: Icon(Icons.person, color: AppColors.primaryText),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.white,
+              ),
+              child: ClipOval(
+                child: _buildUserAvatar(user?.profileImageUrl),
+              ),
             ),
           ),
         ),
@@ -67,10 +75,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           )
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await ref.refresh(bannersProvider.future);
+          await ref.refresh(professionalsProvider.future);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Auto-scrolling Carousel Banner
             Consumer(
               builder: (context, ref, _) {
@@ -100,15 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    banner.imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return const Center(
-                                        child: Icon(Icons.broken_image, color: Colors.grey, size: 40),
-                                      );
-                                    },
-                                  ),
+                                  child: _buildBannerImage(banner.imageUrl),
                                 ),
                               ),
                             );
@@ -133,25 +139,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const Text('Here are your tools to advance your local career.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
                   const SizedBox(height: 24),
                   
-                  // 2x2 Grid for Quick Actions
+                  // 4 Quick Actions in 1 Row
                   GridView.count(
-                    crossAxisCount: 2,
+                    crossAxisCount: 4,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 1.55,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 0.8,
                     children: [
-                      _buildGridCustomCard(context, 'My Jobs', Icons.work_history_outlined, () {
+                      _buildGridSmallCard(context, 'My\nJobs', Icons.work_history_outlined, () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const AppliedJobsScreen()));
                       }),
-                      _buildGridCustomCard(context, 'Doctor Appointments', Icons.calendar_today_outlined, () {
+                      _buildGridSmallCard(context, 'My\nAppts', Icons.calendar_today_outlined, () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const AppointmentsScreen()));
                       }),
-                      _buildGridCustomCard(context, 'Local Offers', Icons.local_offer_outlined, () {
+                      _buildGridSmallCard(context, 'Local\nOffers', Icons.local_offer_outlined, () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersHubScreen()));
                       }),
-                      _buildGridCustomCard(context, 'My Test', Icons.fact_check_outlined, () {
+                      _buildGridSmallCard(context, 'My\nTest', Icons.fact_check_outlined, () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTestsScreen()));
                       }),
                     ],
@@ -182,7 +188,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onPressed: () {
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (context) => const _DoctorListingsScreenWrapper()),
+                                MaterialPageRoute(builder: (context) => const _ProfessionalListingsScreenWrapper(filterProfession: 'Doctor')),
                               );
                             },
                             child: const Text('See All', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold)),
@@ -192,31 +198,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Text('Book certified therapists and doctors.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+                      child: Text('Book certified therapists and professionals.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
                       height: 180,
                       child: Consumer(
                         builder: (context, ref, _) {
-                          final doctorsState = ref.watch(doctorsProvider);
+                          final professionalsState = ref.watch(professionalsProvider);
                           
-                          return doctorsState.when(
-                            data: (doctors) {
-                              if (doctors.isEmpty) {
+                          return professionalsState.when(
+                            data: (professionals) {
+                              final docs = professionals.where((p) => p.profession == 'Doctor').toList();
+                              if (docs.isEmpty) {
                                 return const Center(child: Text('No doctors available.'));
                               }
                               
-                              final displayDoctors = doctors.take(4).toList();
+                              final displayProfessionals = docs.take(4).toList();
                               
                               return ListView.builder(
                                 scrollDirection: Axis.horizontal,
                                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                                itemCount: displayDoctors.length,
+                                itemCount: displayProfessionals.length,
                                 itemBuilder: (context, index) {
-                                  final doctor = displayDoctors[index];
+                                  final professional = displayProfessionals[index];
                                   final dummyImg = 'https://randomuser.me/api/portraits/${index % 2 == 0 ? 'women' : 'men'}/${index + 10}.jpg';
-                                  final img = doctor.imageUrl != 'https://via.placeholder.com/150' ? doctor.imageUrl : dummyImg;
+                                  final img = (professional.imageUrl != null && professional.imageUrl != 'https://via.placeholder.com/150') ? professional.imageUrl : dummyImg;
                                   
                                   return Container(
                                     width: 140,
@@ -229,11 +236,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        CircleAvatar(radius: 28, backgroundImage: NetworkImage(img)),
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: AppColors.backgroundLight,
+                                          ),
+                                          child: ClipOval(
+                                            child: _buildProfessionalImage(img),
+                                          ),
+                                        ),
                                         const SizedBox(height: 8),
-                                        Text(doctor.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        Text(professional.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
                                         const SizedBox(height: 4),
-                                        Text(doctor.specialty, style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                        Text(professional.specialty, style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                                         const SizedBox(height: 8),
                                         SizedBox(
                                           height: 30,
@@ -242,7 +259,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                             onPressed: () {
                                               Navigator.push(
                                                 context,
-                                                MaterialPageRoute(builder: (context) => DoctorDetailsScreen(doctor: doctor)),
+                                                MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(professional: professional)),
                                               );
                                             },
                                             style: OutlinedButton.styleFrom(
@@ -259,7 +276,127 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               );
                             },
                             loading: () => const Center(child: CircularProgressIndicator()),
-                            error: (err, stack) => Center(child: Text('Error loading doctors')),
+                            error: (err, stack) => Center(child: Text('Error loading professionals')),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Professionals Section
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: AppColors.white,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Professionals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const _ProfessionalListingsScreenWrapper(filterProfession: 'Professional')),
+                              );
+                            },
+                            child: const Text('See All', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold)),
+                          )
+                        ],
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Text('Book CAs, Lawyers, Developers, etc.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 180,
+                      child: Consumer(
+                        builder: (context, ref, _) {
+                          final professionalsState = ref.watch(professionalsProvider);
+                          
+                          return professionalsState.when(
+                            data: (professionals) {
+                              final pros = professionals.where((p) => p.profession != 'Doctor').toList();
+                              if (pros.isEmpty) {
+                                return const Center(child: Text('No professionals available.'));
+                              }
+                              
+                              final displayProfessionals = pros.take(4).toList();
+                              
+                              return ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                itemCount: displayProfessionals.length,
+                                itemBuilder: (context, index) {
+                                  final professional = displayProfessionals[index];
+                                  final dummyImg = 'https://randomuser.me/api/portraits/${index % 2 == 0 ? "women" : "men"}/${index + 10}.jpg';
+                                  final img = (professional.imageUrl != null && professional.imageUrl != 'https://via.placeholder.com/150') ? professional.imageUrl : dummyImg;
+                                  
+                                  return Container(
+                                    width: 140,
+                                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: AppColors.border),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: AppColors.backgroundLight,
+                                          ),
+                                          child: ClipOval(
+                                            child: _buildProfessionalImage(img),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(professional.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 4),
+                                        Text(professional.specialty, style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          height: 30,
+                                          width: double.infinity,
+                                          child: OutlinedButton(
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(professional: professional)),
+                                              );
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              padding: EdgeInsets.zero,
+                                              side: const BorderSide(color: AppColors.primaryBrand),
+                                            ),
+                                            child: const Text('View Details', style: TextStyle(fontSize: 12)),
+                                          ),
+                                        )
+                                      ],
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                            loading: () => const Center(child: CircularProgressIndicator()),
+                            error: (err, stack) => Center(child: Text('Error loading professionals')),
                           );
                         },
                       ),
@@ -271,8 +408,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildGridActionCard(BuildContext context, String title, IconData icon, int targetTab) {
     return GestureDetector(
@@ -301,6 +439,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Text(
               title,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridSmallCard(BuildContext context, String title, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFFFF),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE5E7EB), width: 0.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: const Color(0xFF6366F1), size: 24),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF111827), height: 1.1),
             ),
           ],
         ),
@@ -339,14 +503,76 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+
+  Widget _buildProfessionalImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const Icon(Icons.local_hospital, size: 28, color: AppColors.secondaryText);
+    }
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        String base64Str = imageUrl.split(',').last.replaceAll(RegExp(r'\s+'), '');
+        int padding = base64Str.length % 4;
+        if (padding != 0) base64Str += '=' * (4 - padding);
+        return Image.memory(base64Decode(base64Str), fit: BoxFit.cover, width: 56, height: 56);
+      } catch (e) {
+        return const Icon(Icons.local_hospital, size: 28, color: AppColors.secondaryText);
+      }
+    } else {
+      return Image.network(imageUrl, fit: BoxFit.cover, width: 56, height: 56,
+          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 28, color: AppColors.secondaryText));
+    }
+  }
+
+  Widget _buildUserAvatar(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return const Icon(Icons.person, color: AppColors.primaryText);
+    }
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        String base64Str = imageUrl.split(',').last.replaceAll(RegExp(r'\s+'), '');
+        int padding = base64Str.length % 4;
+        if (padding != 0) base64Str += '=' * (4 - padding);
+        return Image.memory(base64Decode(base64Str), fit: BoxFit.cover, width: 40, height: 40);
+      } catch (e) {
+        return const Icon(Icons.person, color: AppColors.primaryText);
+      }
+    } else {
+      return Image.network(imageUrl, fit: BoxFit.cover, width: 40, height: 40,
+          errorBuilder: (_, __, ___) => const Icon(Icons.person, color: AppColors.primaryText));
+    }
+  }
+
+  Widget _buildBannerImage(String imageUrl) {
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        String base64Str = imageUrl.split(',').last.replaceAll(RegExp(r'\s+'), '');
+        int padding = base64Str.length % 4;
+        if (padding != 0) base64Str += '=' * (4 - padding);
+        return Image.memory(
+          base64Decode(base64Str),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)),
+        );
+      } catch (e) {
+        return const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40));
+      }
+    } else {
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)),
+      );
+    }
+  }
 }
 
-class _DoctorListingsScreenWrapper extends StatelessWidget {
-  const _DoctorListingsScreenWrapper();
+class _ProfessionalListingsScreenWrapper extends StatelessWidget {
+  final String? filterProfession;
+  const _ProfessionalListingsScreenWrapper({this.filterProfession});
 
   @override
   Widget build(BuildContext context) {
-    return const DoctorListingsScreen();
+    return ProfessionalListingsScreen(filterProfession: filterProfession);
   }
 }
 

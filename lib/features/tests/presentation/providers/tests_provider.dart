@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/tests_repository.dart';
 import '../../domain/test_model.dart';
+import '../../../jobs/data/jobs_repository.dart'; // to get apiClientProvider
+
 
 class ActiveTestState {
   final TestModel? test;
@@ -91,11 +94,16 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
 
   void submitTest() {
     _timer?.cancel();
+
+    // Capture score BEFORE marking finished (state mutation)
+    final currentScore = score;
+    final currentTestId = state.test?.id;
+
     state = state.copyWith(isFinished: true);
-    
-    // Save to completed tests if a test is loaded
-    if (state.test != null) {
-      ref.read(completedTestsProvider.notifier).saveScore(state.test!.id, score);
+
+    // Persist to backend
+    if (currentTestId != null) {
+      ref.read(completedTestsProvider.notifier).saveScore(currentTestId, currentScore);
     }
   }
 
@@ -111,22 +119,52 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
   }
 }
 
-class CompletedTestsNotifier extends Notifier<Map<String, int>> {
+class CompletedTestsNotifier extends AsyncNotifier<Map<String, int>> {
   @override
-  Map<String, int> build() {
-    return {};
+  Future<Map<String, int>> build() async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      final response = await apiClient.get('/users/me/test-attempts');
+      final Map<String, int> scores = {};
+      for (var item in response.data) {
+        final String testId = item['test_id'];
+        final int score = (item['score'] as num).toInt();
+        // Keep highest score
+        if (!scores.containsKey(testId) || score > scores[testId]!) {
+          scores[testId] = score;
+        }
+      }
+      return scores;
+    } catch (e) {
+      return {};
+    }
   }
 
-  void saveScore(String testId, int score) {
-    // Only save the highest score
-    final currentBest = state[testId] ?? -1;
-    if (score > currentBest) {
-      state = {...state, testId: score};
+  Future<void> saveScore(String testId, int score) async {
+    final apiClient = ref.read(apiClientProvider);
+    try {
+      debugPrint('[TestAttempt] Saving score=$score for testId=$testId');
+      await apiClient.post('/users/me/test-attempts', data: {
+        'test_id': testId,
+        'score': score.toDouble(), // backend expects Float
+      });
+      debugPrint('[TestAttempt] Score saved successfully');
+      // Refresh local state from backend
+      ref.invalidateSelf();
+    } catch (e) {
+      debugPrint('[TestAttempt] ERROR saving score: $e');
+      // Still update local state optimistically so UI is not broken
+      final current = state.value ?? {};
+      final updated = Map<String, int>.from(current);
+      if (!updated.containsKey(testId) || score > (updated[testId] ?? 0)) {
+        updated[testId] = score;
+      }
+      state = AsyncValue.data(updated);
     }
   }
 }
 
-final completedTestsProvider = NotifierProvider<CompletedTestsNotifier, Map<String, int>>(() {
+final completedTestsProvider = AsyncNotifierProvider<CompletedTestsNotifier, Map<String, int>>(() {
   return CompletedTestsNotifier();
 });
 

@@ -10,29 +10,23 @@ class SudokuScreen extends StatefulWidget {
 }
 
 class _SudokuScreenState extends State<SudokuScreen> {
-  // A simple pre-defined Sudoku puzzle for the game
+  // A simple pre-defined 6x6 Sudoku puzzle
   final List<List<int>> _initialPuzzle = [
-    [5, 3, 0, 0, 7, 0, 0, 0, 0],
-    [6, 0, 0, 1, 9, 5, 0, 0, 0],
-    [0, 9, 8, 0, 0, 0, 0, 6, 0],
-    [8, 0, 0, 0, 6, 0, 0, 0, 3],
-    [4, 0, 0, 8, 0, 3, 0, 0, 1],
-    [7, 0, 0, 0, 2, 0, 0, 0, 6],
-    [0, 6, 0, 0, 0, 0, 2, 8, 0],
-    [0, 0, 0, 4, 1, 9, 0, 0, 5],
-    [0, 0, 0, 0, 8, 0, 0, 7, 9]
+    [1, 0, 3, 4, 0, 6],
+    [0, 5, 0, 0, 2, 0],
+    [2, 0, 0, 5, 0, 4],
+    [0, 6, 4, 0, 3, 0],
+    [3, 0, 0, 6, 4, 0],
+    [0, 4, 5, 0, 0, 2]
   ];
 
   final List<List<int>> _solution = [
-    [5, 3, 4, 6, 7, 8, 9, 1, 2],
-    [6, 7, 2, 1, 9, 5, 3, 4, 8],
-    [1, 9, 8, 3, 4, 2, 5, 6, 7],
-    [8, 5, 9, 7, 6, 1, 4, 2, 3],
-    [4, 2, 6, 8, 5, 3, 7, 9, 1],
-    [7, 1, 3, 9, 2, 4, 8, 5, 6],
-    [9, 6, 1, 5, 3, 7, 2, 8, 4],
-    [2, 8, 7, 4, 1, 9, 6, 3, 5],
-    [3, 4, 5, 2, 8, 6, 1, 7, 9]
+    [1, 2, 3, 4, 5, 6],
+    [4, 5, 6, 1, 2, 3],
+    [2, 3, 1, 5, 6, 4],
+    [5, 6, 4, 2, 3, 1],
+    [3, 1, 2, 6, 4, 5],
+    [6, 4, 5, 3, 1, 2]
   ];
 
   late List<List<int>> _currentGrid;
@@ -52,8 +46,8 @@ class _SudokuScreenState extends State<SudokuScreen> {
   }
 
   void _initGame() {
-    _currentGrid = List.generate(9, (r) => List.generate(9, (c) => _initialPuzzle[r][c]));
-    _isFixed = List.generate(9, (r) => List.generate(9, (c) => _initialPuzzle[r][c] != 0));
+    _currentGrid = List.generate(6, (r) => List.generate(6, (c) => _initialPuzzle[r][c]));
+    _isFixed = List.generate(6, (r) => List.generate(6, (c) => _initialPuzzle[r][c] != 0));
     _selectedRow = null;
     _selectedCol = null;
     _secondsElapsed = 0;
@@ -104,8 +98,8 @@ class _SudokuScreenState extends State<SudokuScreen> {
 
   void _checkWinCondition() {
     bool isWin = true;
-    for (int r = 0; r < 9; r++) {
-      for (int c = 0; c < 9; c++) {
+    for (int r = 0; r < 6; r++) {
+      for (int c = 0; c < 6; c++) {
         if (_currentGrid[r][c] != _solution[r][c]) {
           isWin = false;
           break;
@@ -118,6 +112,31 @@ class _SudokuScreenState extends State<SudokuScreen> {
       _timer?.cancel();
       _showWinDialog();
     }
+  }
+
+  void _showResetConfirmation() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reset Game?'),
+        content: const Text('Are you sure you want to reset the current puzzle? All progress will be lost.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _initGame();
+              });
+            },
+            child: const Text('Reset', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showWinDialog() {
@@ -161,12 +180,13 @@ class _SudokuScreenState extends State<SudokuScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => setState(() => _initGame()),
+            onPressed: _showResetConfirmation,
           )
         ],
       ),
-      body: Column(
-        children: [
+      body: SafeArea(
+        child: Column(
+          children: [
           const SizedBox(height: 16),
           // Timer
           Row(
@@ -196,19 +216,19 @@ class _SudokuScreenState extends State<SudokuScreen> {
                     child: GridView.builder(
                   physics: const NeverScrollableScrollPhysics(),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 9,
+                    crossAxisCount: 6,
                   ),
-                  itemCount: 81,
+                  itemCount: 36,
                   itemBuilder: (context, index) {
-                    final row = index ~/ 9;
-                    final col = index % 9;
+                    final row = index ~/ 6;
+                    final col = index % 6;
                     
                     final isSelected = row == _selectedRow && col == _selectedCol;
                     final isFixed = _isFixed[row][col];
                     final value = _currentGrid[row][col];
                     
-                    final isRightBorder = col == 2 || col == 5;
-                    final isBottomBorder = row == 2 || row == 5;
+                    final isRightBorder = col == 2;
+                    final isBottomBorder = row == 1 || row == 3;
 
                     return GestureDetector(
                       onTap: () => _onCellTap(row, col),
@@ -255,13 +275,13 @@ class _SudokuScreenState extends State<SudokuScreen> {
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: List.generate(5, (index) => _buildNumpadButton(index + 1)),
+                  children: List.generate(4, (index) => _buildNumpadButton(index + 1)),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    ...List.generate(4, (index) => _buildNumpadButton(index + 6)),
+                    ...List.generate(2, (index) => _buildNumpadButton(index + 5)),
                     _buildNumpadButton(0, isErase: true),
                   ],
                 ),
@@ -269,7 +289,8 @@ class _SudokuScreenState extends State<SudokuScreen> {
             ),
           ),
           const SizedBox(height: 24),
-        ],
+          ],
+        ),
       ),
     );
   }

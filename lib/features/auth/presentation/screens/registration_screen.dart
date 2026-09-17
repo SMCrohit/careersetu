@@ -145,7 +145,7 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                         value: _selectedGoal,
                         icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryText),
                         items: const [
-                          DropdownMenuItem(value: 'doctor', child: Text('Doctor')),
+                          DropdownMenuItem(value: 'professional', child: Text('Professional')),
                           DropdownMenuItem(value: 'engineer', child: Text('Engineer')),
                           DropdownMenuItem(value: 'ias', child: Text('IAS')),
                           DropdownMenuItem(value: 'ips', child: Text('IPS')),

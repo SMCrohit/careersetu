@@ -5,6 +5,8 @@ class User {
   final String email;
   final String city;
   final String goal;
+  final String? profileImageUrl;
+  final Map<String, dynamic>? resumeData;
 
   User({
     this.id,
@@ -13,6 +15,8 @@ class User {
     required this.email,
     required this.city,
     required this.goal,
+    this.profileImageUrl,
+    this.resumeData,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -23,6 +27,8 @@ class User {
       email: json['email'] ?? '',
       city: json['city'] ?? '',
       goal: json['goal'] ?? '',
+      profileImageUrl: json['profile_image_url'],
+      resumeData: json['resume_data'] as Map<String, dynamic>?,
     );
   }
 
@@ -34,6 +40,8 @@ class User {
       'email': email,
       'city': city,
       'goal': goal,
+      if (profileImageUrl != null) 'profile_image_url': profileImageUrl,
+      if (resumeData != null) 'resume_data': resumeData,
     };
   }
 }
