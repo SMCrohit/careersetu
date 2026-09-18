@@ -20,3 +20,5 @@ typing-inspection==0.4.2
 typing_extensions==4.16.0
 uvicorn==0.39.0
 firebase-admin
+openpyxl==3.1.2
+pypdf==4.1.0
