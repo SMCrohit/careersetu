@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-import { ArrowLeft, Plus, Trash2, Save, X } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Save, X, Upload } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Modal from '../components/Modal';
 import { useToast } from '../context/ToastContext';
 
 interface Question {
@@ -23,6 +24,12 @@ const TestQuestions = () => {
   
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [questionToDelete, setQuestionToDelete] = useState<number | null>(null);
+
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [invalidQuestionsModalOpen, setInvalidQuestionsModalOpen] = useState(false);
+  const [invalidQuestions, setInvalidQuestions] = useState<string[]>([]);
 
   useEffect(() => {
     fetchTest();
@@ -53,6 +60,38 @@ const TestQuestions = () => {
       showToast("Failed to save questions", "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+    
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    
+    try {
+      const res = await api.post(`/tests/${id}/upload-questions`, formData);
+      
+      const { valid, invalid } = res.data;
+      
+      if (valid && valid.length > 0) {
+        setQuestions(prev => [...prev, ...valid]);
+        showToast(`Successfully added ${valid.length} questions`, "success");
+      }
+      
+      if (invalid && invalid.length > 0) {
+        setInvalidQuestions(invalid);
+        setInvalidQuestionsModalOpen(true);
+      }
+      
+      setUploadModalOpen(false);
+      setUploadFile(null);
+    } catch (error) {
+      showToast("Failed to upload questions", "error");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -139,6 +178,9 @@ const TestQuestions = () => {
           <p className="text-secondaryText">Editing questions for test: <span className="font-medium text-primaryBrand">{test.title}</span></p>
         </div>
         <div className="ml-auto flex gap-3">
+          <button onClick={() => setUploadModalOpen(true)} className="px-4 py-2 border border-gray-300 text-secondaryText font-medium rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2">
+            <Upload size={18} /> Bulk Upload
+          </button>
           <button onClick={addQuestion} className="px-4 py-2 border border-primaryBrand text-primaryBrand font-medium rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2">
             <Plus size={18} /> Add Question
           </button>
@@ -230,6 +272,50 @@ const TestQuestions = () => {
         title="Remove Question" 
         message="Are you sure you want to remove this question? You will still need to save changes for it to take effect." 
       />
+
+      <Modal isOpen={uploadModalOpen} onClose={() => setUploadModalOpen(false)} title="Bulk Upload Questions">
+        <form onSubmit={handleUpload} className="space-y-4">
+          <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-800 mb-4">
+            <p className="mb-2 font-medium">Download Sample Formats:</p>
+            <div className="flex gap-4">
+              <a href="/sample_questions.xlsx" download className="text-primaryBrand hover:underline">Excel Sample (.xlsx)</a>
+              <a href="/sample_questions.pdf" download className="text-primaryBrand hover:underline">PDF Sample (.pdf)</a>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-secondaryText mb-1">Select File (PDF or Excel)</label>
+            <input 
+              type="file" 
+              accept=".pdf,.xlsx,.xls"
+              onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)}
+              className="w-full text-sm text-secondaryText file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primaryBrand hover:file:bg-blue-100" 
+              required
+            />
+          </div>
+          <div className="flex justify-end gap-3 mt-6">
+            <button type="button" onClick={() => setUploadModalOpen(false)} className="px-4 py-2 text-secondaryText hover:text-primaryText font-medium">Cancel</button>
+            <button type="submit" disabled={uploading || !uploadFile} className="btn-primary flex items-center gap-2">
+              {uploading ? 'Uploading...' : 'Upload'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={invalidQuestionsModalOpen} onClose={() => setInvalidQuestionsModalOpen(false)} title="Some Questions Failed">
+        <div className="space-y-4">
+          <p className="text-sm text-secondaryText">The following questions did not match the required multiple-choice format and were skipped:</p>
+          <div className="max-h-60 overflow-y-auto bg-gray-50 rounded-md p-3 border border-border">
+            <ul className="list-disc pl-5 text-sm text-error space-y-1">
+              {invalidQuestions.map((iq, idx) => (
+                <li key={idx}>{iq}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-end mt-4">
+            <button onClick={() => setInvalidQuestionsModalOpen(false)} className="btn-primary">Acknowledge</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

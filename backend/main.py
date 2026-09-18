@@ -1,4 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+import io
+import re
+import uuid
+import openpyxl
+from pypdf import PdfReader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -309,6 +314,96 @@ def update_test(test_id: str, test_update: schemas.TestBase, db: Session = Depen
     db.refresh(db_test)
     auth.log_admin_action(db, admin, "UPDATE", "Tests", test_id)
     return db_test
+
+@app.post("/api/tests/{test_id}/upload-questions")
+async def upload_questions(test_id: str, file: UploadFile = File(...), admin: str = Depends(auth.get_current_admin)):
+    valid_questions = []
+    invalid_questions = []
+    
+    contents = await file.read()
+    
+    if file.filename.endswith(".xlsx"):
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+            sheet = wb.active
+            for row in sheet.iter_rows(min_row=2, values_only=True):
+                # Expected format: Question | Opt 1 | Opt 2 | Opt 3 | Opt 4 | Correct Answer
+                if not row or not row[0]:
+                    continue
+                question_text = str(row[0]).strip()
+                options = [str(opt).strip() for opt in row[1:5] if opt is not None and str(opt).strip()]
+                correct_answer = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                
+                if len(options) >= 2 and correct_answer:
+                    valid_questions.append({
+                        "id": f"q_{uuid.uuid4().hex[:8]}",
+                        "text": question_text,
+                        "options": options,
+                        "correct_answer": correct_answer
+                    })
+                else:
+                    invalid_questions.append(question_text)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse Excel: {str(e)}")
+            
+    elif file.filename.endswith(".pdf"):
+        try:
+            pdf = PdfReader(io.BytesIO(contents))
+            text = "\n"
+            for page in pdf.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+                
+            # More flexible block splitting
+            blocks = re.split(r'\n(?=(?:Q|q)?\s*\d+[\.\)])', text)
+            for block in blocks:
+                block = block.strip()
+                if not block:
+                    continue
+                
+                # Extract question text
+                q_match = re.search(r'^(?:Q|q)?\s*\d+[\.\)]\s*(.*?)(?=\n\s*\(?[a-dA-D][\.\)]|$)', block, re.DOTALL)
+                
+                if not q_match:
+                    if re.match(r'^(?:Q|q)?\s*\d+[\.\)]', block):
+                        invalid_questions.append(block[:100] + "...")
+                    continue
+                
+                q_text = q_match.group(1).strip()
+                
+                # Extract options
+                options = []
+                opt_pattern = r'\n\s*\(?([a-dA-D])[\.\)]\s*(.*?)(?=\n\s*\(?[a-dA-D][\.\)]|\n\s*(?:Answer|Ans):|$)'
+                for opt_match in re.finditer(opt_pattern, block, re.DOTALL):
+                    options.append(opt_match.group(2).strip())
+                        
+                # Extract answer
+                ans_match = re.search(r'\n\s*(?:Answer|Ans):\s*\(?([a-dA-D])[\.\)]?', block, re.IGNORECASE)
+                correct_answer = ""
+                if ans_match:
+                    ans_letter = ans_match.group(1).upper()
+                    idx = ord(ans_letter) - ord('A')
+                    if 0 <= idx < len(options):
+                        correct_answer = options[idx]
+                
+                if len(options) >= 2:
+                    valid_questions.append({
+                        "id": f"q_{uuid.uuid4().hex[:8]}",
+                        "text": q_text,
+                        "options": options,
+                        "correct_answer": correct_answer
+                    })
+                else:
+                    invalid_questions.append(q_text[:100] + "...")
+                    
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
+            
+    else:
+        raise HTTPException(status_code=400, detail="Only .xlsx and .pdf files are supported")
+        
+    return {"valid": valid_questions, "invalid": invalid_questions}
 
 # Doctors CRUD
 @app.get("/api/professionals", response_model=list[schemas.Professional])
