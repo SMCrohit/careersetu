@@ -192,7 +192,8 @@ const Professionals = () => {
       experience: doc.experience,
       consultation_fee: doc.consultation_fee,
       image_url: doc.image_url || '',
-      description: doc.description || ''
+      description: doc.description || '',
+      default_rating: doc.default_rating || 0
     });
     setEditingId(doc.id);
     setIsModalOpen(true);
