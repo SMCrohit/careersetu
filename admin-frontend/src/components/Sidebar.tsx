@@ -55,6 +55,7 @@ const Sidebar = () => {
       subItems: [
         { label: 'List', path: '/professionals' },
         { label: 'Appointments', path: '/appointments' },
+        { label: 'Reviews', path: '/professionals/reviews' },
       ]
     },
     { 

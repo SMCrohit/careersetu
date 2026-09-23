@@ -4,11 +4,65 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../providers/tests_provider.dart';
 
-class TestResultsScreen extends ConsumerWidget {
+import 'package:file_saver/file_saver.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../../core/widgets/custom_toast.dart';
+import '../utils/pdf_report_generator.dart';
+
+class TestResultsScreen extends ConsumerStatefulWidget {
   const TestResultsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TestResultsScreen> createState() => _TestResultsScreenState();
+}
+
+class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
+  bool _isDownloading = false;
+
+  Future<void> _downloadReport() async {
+    setState(() => _isDownloading = true);
+    try {
+      final state = ref.read(activeTestProvider);
+      final correct = ref.read(activeTestProvider.notifier).score;
+      final attempted = state.selectedAnswers.length;
+      final accuracy = attempted > 0 ? (correct / attempted * 100).toInt() : 0;
+      final user = ref.read(authProvider);
+      final userName = user?.fullName ?? 'Student';
+
+      final pdfBytes = await PdfReportGenerator.generateTestReport(
+        state: state,
+        userName: userName,
+        score: correct,
+        attempted: attempted,
+        accuracy: accuracy,
+      );
+
+      final testTitle = state.test?.title.replaceAll(' ', '_') ?? 'Test';
+      final fileName = '${testTitle}_Report_${DateTime.now().millisecondsSinceEpoch}';
+      
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: pdfBytes,
+        ext: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+
+      if (mounted) {
+        CustomToast.show(context, 'Report downloaded to device!', isError: false);
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomToast.show(context, 'Failed to download report.', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(activeTestProvider);
     final correct = ref.read(activeTestProvider.notifier).score;
     final total = state.test?.questions.length ?? 0;
@@ -110,9 +164,30 @@ class TestResultsScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: PrimaryButton(
-                text: 'Back to Home',
-                onPressed: () => Navigator.pop(context),
+              child: Column(
+                children: [
+                  PrimaryButton(
+                    text: 'Back to Home',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isDownloading ? null : _downloadReport,
+                      icon: _isDownloading 
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.download),
+                      label: Text(_isDownloading ? 'Downloading...' : 'Download Report'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primaryBrand,
+                        side: const BorderSide(color: AppColors.primaryBrand),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 48),

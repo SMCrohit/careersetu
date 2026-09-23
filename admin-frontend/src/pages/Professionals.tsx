@@ -19,10 +19,12 @@ interface Professional {
   experience: string;
   consultation_fee: number;
   image_url?: string;
+  description?: string;
+  default_rating: number;
 }
 
 const defaultFormData = {
-  name: '', profession: 'Doctor', specialty: '', clinic: '', experience: '', consultation_fee: 500, image_url: ''
+  name: '', profession: 'Doctor', specialty: '', clinic: '', experience: '', consultation_fee: 500, image_url: '', description: '', default_rating: 4.5
 };
 
 const Professionals = () => {
@@ -189,7 +191,8 @@ const Professionals = () => {
       clinic: doc.clinic,
       experience: doc.experience,
       consultation_fee: doc.consultation_fee,
-      image_url: doc.image_url || ''
+      image_url: doc.image_url || '',
+      description: doc.description || ''
     });
     setEditingId(doc.id);
     setIsModalOpen(true);
@@ -198,6 +201,11 @@ const Professionals = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        showToast("Image must be less than 5MB", "error");
+        e.target.value = '';
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setFormData({ ...formData, image_url: reader.result as string });
@@ -450,7 +458,7 @@ const Professionals = () => {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-primaryText mb-1">Professional Photo</label>
+                <label className="block text-sm font-medium text-primaryText mb-1">Professional Photo (Max 5MB)</label>
                 <input type="file" accept="image/*" onChange={handleImageUpload} className="text-sm text-secondaryText file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-primaryBrand/10 file:text-primaryBrand hover:file:bg-primaryBrand/20 cursor-pointer" />
               </div>
             </div>
@@ -478,6 +486,10 @@ const Professionals = () => {
               <label className="block text-sm font-medium text-secondaryText mb-1">{formData.profession === 'Doctor' ? 'Clinic/Hospital' : 'Firm Name'}</label>
               <input required type="text" className="input-field" value={formData.clinic} onChange={e => setFormData({...formData, clinic: e.target.value})} placeholder={formData.profession === 'Doctor' ? "City Hospital" : "Tech Corp"} />
             </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-secondaryText mb-1">About / Description</label>
+              <textarea className="input-field min-h-[100px]" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Write a short description..." />
+            </div>
             <div>
               <label className="block text-sm font-medium text-secondaryText mb-1">Experience (Years)</label>
               <input required type="text" className="input-field" value={formData.experience} onChange={e => setFormData({...formData, experience: e.target.value})} placeholder="10+ Years" />
@@ -485,6 +497,14 @@ const Professionals = () => {
             <div>
               <label className="block text-sm font-medium text-secondaryText mb-1">Consultation Fee (₹)</label>
               <input required type="number" min="0" className="input-field" value={formData.consultation_fee} onChange={e => setFormData({...formData, consultation_fee: parseFloat(e.target.value) || 0})} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-secondaryText mb-1">Default Rating</label>
+              <input required type="number" min="1" max="5" step="0.1" className="input-field" value={formData.default_rating} onChange={e => setFormData({...formData, default_rating: parseFloat(e.target.value) || 0})} placeholder="4.5" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-secondaryText mb-1">Description</label>
+              <textarea rows={3} className="input-field" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Professional background, achievements, etc." />
             </div>
           </div>
           <div className="flex justify-end gap-3 mt-6">

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
+import 'settings_screen.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
@@ -44,6 +45,13 @@ class ProfileScreen extends ConsumerWidget {
                             final picker = ImagePicker();
                             final image = await picker.pickImage(source: ImageSource.gallery);
                             if (image != null) {
+                              final length = await image.length();
+                              if (length > 5 * 1024 * 1024) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image must be less than 5MB', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
+                                }
+                                return;
+                              }
                               final bytes = await image.readAsBytes();
                               final base64String = base64Encode(bytes);
                               final extension = image.path.split('.').last;
@@ -120,7 +128,9 @@ class ProfileScreen extends ConsumerWidget {
                                 Navigator.push(context, MaterialPageRoute(builder: (context) => const AppliedJobsScreen()));
                               }),
                               _buildDivider(),
-                              _buildListTile(context, 'Settings', 'App preferences and account', Icons.settings_outlined, onTap: () {}),
+                              _buildListTile(context, 'Settings', 'App preferences and account', Icons.settings_outlined, onTap: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+                              }),
                               _buildDivider(),
                               
                               // Log Out Option
@@ -460,6 +470,13 @@ class _ResumeBottomSheetState extends ConsumerState<_ResumeBottomSheet> {
 
       if (result != null && result.isNotEmpty) {
         final file = result.first;
+        if (file.size > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resume must be less than 5MB', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
+          }
+          return;
+        }
+        
         setState(() => _isLoading = true);
         final bytes = await file.readAsBytes();
         
@@ -691,7 +708,7 @@ class _ResumeBottomSheetState extends ConsumerState<_ResumeBottomSheet> {
                         child: ElevatedButton.icon(
                           onPressed: _uploadResume,
                           icon: const Icon(Icons.upload, color: Colors.white),
-                          label: const Text('Upload Resume (PDF)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                          label: const Text('Upload Resume (PDF, Max 5MB)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primaryBrand,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

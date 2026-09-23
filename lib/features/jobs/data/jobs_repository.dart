@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../domain/job_model.dart';
+import '../domain/job_filter_state.dart';
 
 class JobsRepository {
   final ApiClient _apiClient;
@@ -11,7 +12,7 @@ class JobsRepository {
     int page = 1, 
     int limit = 10, 
     String query = '', 
-    Set<String> filters = const {},
+    JobFilterState? filters,
   }) async {
     final response = await _apiClient.get('/jobs');
     
@@ -28,13 +29,24 @@ class JobsRepository {
       }).toList();
     }
 
-    // Apply simple mock filters locally
-    if (filters.isNotEmpty) {
-      if (filters.contains('Full-time')) {
-        allJobs = allJobs.where((job) => job.type == 'Full-time').toList();
+    // Apply local filters
+    if (filters != null) {
+      if (filters.type != null && filters.type!.isNotEmpty) {
+        allJobs = allJobs.where((job) => job.type == filters.type).toList();
       }
-      if (filters.contains('Distance')) {
-        allJobs.sort((a, b) => a.location.compareTo(b.location));
+      if (filters.experience != null && filters.experience!.isNotEmpty) {
+        allJobs = allJobs.where((job) => job.experience == filters.experience).toList();
+      }
+      if (filters.profession != null && filters.profession!.isNotEmpty) {
+        allJobs = allJobs.where((job) => job.profession == filters.profession).toList();
+      }
+      if (filters.location != null && filters.location!.isNotEmpty) {
+        final locQuery = filters.location!.toLowerCase();
+        allJobs = allJobs.where((job) => job.location.toLowerCase().contains(locQuery)).toList();
+      }
+      if (filters.salary != null && filters.salary!.isNotEmpty) {
+        final salQuery = filters.salary!.toLowerCase();
+        allJobs = allJobs.where((job) => job.salary.toLowerCase().contains(salQuery)).toList();
       }
     }
     

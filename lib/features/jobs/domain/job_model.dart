@@ -10,6 +10,9 @@ class JobModel {
   final String applicants;
   final String description;
   final List<String> requirements;
+  final String experience;
+  final String profession;
+  final DateTime? createdDatetime;
 
   JobModel({
     required this.id,
@@ -23,6 +26,9 @@ class JobModel {
     required this.applicants,
     required this.description,
     required this.requirements,
+    this.experience = '0-1 Years',
+    this.profession = '',
+    this.createdDatetime,
   });
 
   factory JobModel.fromJson(Map<String, dynamic> json) {
@@ -36,8 +42,11 @@ class JobModel {
       level: json['level'] as String,
       postedTime: json['posted_time'] as String? ?? json['postedTime'] as String? ?? '',
       applicants: json['applicants'] as String? ?? json['applicants']?.toString() ?? '0',
-      description: json['description'] as String,
+      description: json['description'] as String? ?? '',
       requirements: List<String>.from(json['requirements'] ?? []),
+      experience: json['experience'] as String? ?? '0-1 Years',
+      profession: json['profession'] as String? ?? '',
+      createdDatetime: json['created_datetime'] != null ? DateTime.tryParse(json['created_datetime']) : null,
     );
   }
 }

@@ -16,6 +16,7 @@ import Appointments from './pages/Appointments';
 import AppliedJobs from './pages/AppliedJobs';
 import AttemptedTests from './pages/AttemptedTests';
 import ClaimedOffers from './pages/ClaimedOffers';
+import ProfessionalReviews from './pages/ProfessionalReviews';
 import { ToastProvider } from './context/ToastContext';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -45,6 +46,7 @@ function App() {
           <Route path="/tests/:id/questions" element={<ProtectedRoute><TestQuestions /></ProtectedRoute>} />
           <Route path="/professionals" element={<ProtectedRoute><Professionals /></ProtectedRoute>} />
           <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
+          <Route path="/professionals/reviews" element={<ProtectedRoute><ProfessionalReviews /></ProtectedRoute>} />
           <Route path="/offers" element={<ProtectedRoute><Offers /></ProtectedRoute>} />
           <Route path="/offers/claimed" element={<ProtectedRoute><ClaimedOffers /></ProtectedRoute>} />
           <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />

@@ -84,10 +84,16 @@ const Banners = () => {
 
   const onSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        showToast("Image must be less than 5MB", "error");
+        e.target.value = '';
+        return;
+      }
       setCrop(undefined);
       const reader = new FileReader();
       reader.addEventListener('load', () => setImgSrc(reader.result?.toString() || ''));
-      reader.readAsDataURL(e.target.files[0]);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -236,7 +242,7 @@ const Banners = () => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-secondaryText mb-1">Banner Image</label>
+            <label className="block text-sm font-medium text-secondaryText mb-1">Banner Image (Max 5MB)</label>
             {!imgSrc && (
               <input 
                 type="file" 

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../core/widgets/custom_toast.dart';
+import '../../professionals/data/professionals_repository.dart';
+import '../../professionals/domain/professional_model.dart';
+import '../../professionals/presentation/screens/professional_details_screen.dart';
 import '../providers/appointments_provider.dart';
 import '../../domain/appointment_model.dart';
-import 'package:careersetu/features/professionals/presentation/screens/professional_details_screen.dart';
-import 'dart:convert';
 
 class AppointmentsScreen extends ConsumerWidget {
   const AppointmentsScreen({super.key});
@@ -34,8 +38,15 @@ class AppointmentsScreen extends ConsumerWidget {
         ),
         body: appointmentsAsync.when(
           data: (appointments) {
-            final upcoming = appointments.where((a) => ['upcoming', 'pending', 'sent_to_professional'].contains(a.status)).toList();
-            final past = appointments.where((a) => ['completed', 'cancelled'].contains(a.status)).toList();
+            final upcoming = appointments.where((a) {
+              if (_isAppointmentInPast(a)) return false;
+              return ['upcoming', 'pending', 'sent_to_doctor'].contains(a.status);
+            }).toList();
+            
+            final past = appointments.where((a) {
+              if (_isAppointmentInPast(a)) return true;
+              return ['completed', 'cancelled'].contains(a.status);
+            }).toList();
             return TabBarView(
               children: [
                 _buildAppointmentList(context, ref, upcoming, 'No upcoming appointments.'),
@@ -71,6 +82,7 @@ class AppointmentsScreen extends ConsumerWidget {
       itemBuilder: (context, index) {
         final appt = appointments[index];
         final doc = appt.professional;
+        final isPast = _isAppointmentInPast(appt) || ['completed', 'cancelled'].contains(appt.status);
         
         return Card(
           margin: const EdgeInsets.only(bottom: 16),
@@ -81,7 +93,10 @@ class AppointmentsScreen extends ConsumerWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(professional: doc)),
+                MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(
+                  professional: doc,
+                  bookingContext: ['upcoming', 'pending', 'sent_to_doctor'].contains(appt.status) ? 'upcoming' : 'past',
+                )),
               );
             },
             child: Padding(
@@ -96,15 +111,15 @@ class AppointmentsScreen extends ConsumerWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: appt.status == 'pending' ? Colors.orange.withOpacity(0.1) : (['upcoming', 'sent_to_professional'].contains(appt.status) ? AppColors.primaryBrand.withOpacity(0.1) : AppColors.success.withOpacity(0.1)),
+                          color: _getStatusColor(appt.status, isPast).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          appt.status == 'pending' ? 'PENDING APPROVAL' : (appt.status == 'sent_to_professional' ? 'CONFIRMED' : appt.status.toUpperCase()),
+                          _getStatusText(appt.status, isPast),
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: appt.status == 'pending' ? Colors.orange : (['upcoming', 'sent_to_professional'].contains(appt.status) ? AppColors.primaryBrand : AppColors.success),
+                            color: _getStatusColor(appt.status, isPast),
                           ),
                         ),
                       )
@@ -137,7 +152,23 @@ class AppointmentsScreen extends ConsumerWidget {
                       ),
                       const Icon(Icons.chevron_right, color: AppColors.secondaryText),
                     ],
-                  )
+                  ),
+                  if (isPast && _getStatusText(appt.status, isPast) == 'ATTENDED') ...[
+                    const Divider(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () => _showWriteReviewBottomSheet(context, ref, doc),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primaryBrand,
+                          side: const BorderSide(color: AppColors.primaryBrand),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Write a Review', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -147,6 +178,146 @@ class AppointmentsScreen extends ConsumerWidget {
     ),
   );
 }
+
+  void _showWriteReviewBottomSheet(BuildContext context, WidgetRef ref, Professional professional) {
+    double rating = 5.0;
+    String comment = '';
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Write a Review', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('How was your appointment with ${professional.name}?', style: const TextStyle(color: AppColors.secondaryText)),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(5, (index) {
+                        return IconButton(
+                          icon: Icon(
+                            index < rating ? Icons.star_rounded : Icons.star_outline_rounded,
+                            color: AppColors.secondaryBrand,
+                            size: 40,
+                          ),
+                          onPressed: () => setState(() => rating = index + 1.0),
+                        );
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Add a comment (optional)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.all(16),
+                    ),
+                    maxLines: 3,
+                    onChanged: (val) => comment = val,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBrand,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        try {
+                          final repo = ref.read(professionalsRepositoryProvider);
+                          await repo.submitReview(professional.id, rating, comment);
+                          Navigator.pop(context);
+                          CustomToast.show(context, 'Review submitted successfully', isError: false);
+                        } catch (e) {
+                          CustomToast.show(context, 'Failed to submit review', isError: true);
+                        }
+                      },
+                      child: const Text('Submit Review', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          }
+        );
+      },
+    );
+  }
+
+  bool _isAppointmentInPast(Appointment appt) {
+    try {
+      DateTime apptDate;
+      if (appt.date == 'Today') {
+        apptDate = DateTime.now();
+      } else if (appt.date == 'Tomorrow') {
+        apptDate = DateTime.now().add(const Duration(days: 1));
+      } else {
+        apptDate = DateFormat('MMM d, yyyy').parse(appt.date);
+      }
+
+      final timeFormat = DateFormat('h:mm a');
+      final parsedTime = timeFormat.parse(appt.time);
+      
+      final finalDateTime = DateTime(
+        apptDate.year,
+        apptDate.month,
+        apptDate.day,
+        parsedTime.hour,
+        parsedTime.minute,
+      );
+
+      return finalDateTime.isBefore(DateTime.now());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  String _getStatusText(String status, bool isPast) {
+    if (isPast) {
+      if (status == 'completed') return 'ATTENDED';
+      if (status == 'cancelled') return 'CANCELLED';
+      if (status == 'sent_to_doctor' || status == 'upcoming') return 'MISSED';
+      if (status == 'pending') return 'EXPIRED';
+      return status.toUpperCase();
+    } else {
+      if (status == 'pending') return 'PENDING APPROVAL';
+      if (status == 'sent_to_doctor') return 'CONFIRMED';
+      return status.toUpperCase();
+    }
+  }
+
+  Color _getStatusColor(String status, bool isPast) {
+    if (isPast) {
+      if (status == 'completed') return AppColors.success;
+      if (status == 'cancelled') return AppColors.secondaryText;
+      if (status == 'sent_to_doctor' || status == 'upcoming') return AppColors.error;
+      if (status == 'pending') return Colors.orange;
+      return AppColors.secondaryText;
+    } else {
+      if (status == 'pending') return Colors.orange;
+      if (status == 'sent_to_doctor' || status == 'upcoming') return AppColors.primaryBrand;
+      return AppColors.primaryBrand;
+    }
+  }
 
   Widget _buildProfessionalImage(String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {

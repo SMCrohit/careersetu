@@ -41,6 +41,8 @@ class Job(BaseModel):
     requirements = Column(JSON, default=[])
     posted_time = Column(String)
     applicants = Column(String)
+    experience = Column(String, default="0-1 Years")
+    profession = Column(String, default="")
 
 class Test(BaseModel):
     __tablename__ = "tests"
@@ -62,6 +64,18 @@ class Professional(BaseModel):
     experience = Column(String)
     consultation_fee = Column(Float)
     image_url = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    default_rating = Column(Float, default=0.0)
+
+class ProfessionalReview(BaseModel):
+    __tablename__ = "professional_reviews"
+    professional_id = Column(UUID(as_uuid=True), ForeignKey("professionals.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    rating = Column(Float)
+    comment = Column(Text, nullable=True)
+    
+    professional = relationship("Professional")
+    user = relationship("User")
 
 class Offer(BaseModel):
     __tablename__ = "offers"

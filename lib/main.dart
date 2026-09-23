@@ -7,6 +7,7 @@ import 'core/constants/app_colors.dart';
 import 'features/auth/presentation/screens/registration_screen.dart';
 import 'features/auth/presentation/screens/otp_screen.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
+import 'features/auth/presentation/screens/complete_profile_screen.dart';
 import 'features/home/presentation/screens/main_navigation.dart';
 import 'features/profile/presentation/screens/profile_screen.dart';
 import 'features/notifications/presentation/screens/notifications_screen.dart';
@@ -59,6 +60,7 @@ class CareerSetuApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/registration': (context) => const RegistrationScreen(),
         '/otp': (context) => const OtpScreen(),
+        '/complete_profile': (context) => const CompleteProfileScreen(),
         '/main': (context) => const MainNavigation(),
         '/profile': (context) => const ProfileScreen(),
         '/notifications': (context) => const NotificationsScreen(),
@@ -90,6 +92,9 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
     }
 
     if (authState.currentUser != null) {
+      if (authState.currentUser!.city.isEmpty || authState.currentUser!.goal.isEmpty) {
+        return const CompleteProfileScreen();
+      }
       return const MainNavigation();
     }
 

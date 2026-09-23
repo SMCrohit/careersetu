@@ -18,28 +18,32 @@ class RegistrationScreen extends ConsumerStatefulWidget {
 class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
   final _mobileController = TextEditingController();
-  final _cityController = TextEditingController();
-  String? _selectedGoal;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args != null && args is String && _mobileController.text.isEmpty) {
+      _mobileController.text = args;
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
     _mobileController.dispose();
-    _cityController.dispose();
     super.dispose();
   }
 
   void _signup() async {
-    if (_formKey.currentState!.validate() && _selectedGoal != null) {
+    if (_formKey.currentState!.validate()) {
       final user = User(
         mobileNumber: _mobileController.text,
         fullName: _nameController.text,
-        email: _emailController.text,
-        city: _cityController.text,
-        goal: _selectedGoal!,
+        email: '',
+        city: '',
+        goal: '',
       );
       
       final success = await ref.read(authProvider.notifier).requestSignupOtp(user);
@@ -55,8 +59,6 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
         final error = ref.read(authProvider).error ?? 'Signup failed';
         CustomToast.showError(context, error);
       }
-    } else if (_selectedGoal == null) {
-      CustomToast.showError(context, 'Please select your career goal');
     }
   }
 
@@ -102,15 +104,6 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   const SizedBox(height: 16),
                   
                   CustomTextField(
-                    label: 'Email Address',
-                    hintText: 'Email',
-                    keyboardType: TextInputType.emailAddress,
-                    controller: _emailController,
-                    validator: (v) => v!.isEmpty || !v.contains('@') ? 'Enter valid email' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  CustomTextField(
                     label: 'Mobile Number',
                     hintText: '9876543210',
                     prefixText: '+91 ',
@@ -119,51 +112,6 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                     maxLength: 10,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     validator: (v) => v!.length != 10 ? 'Must be 10 digits' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  CustomTextField(
-                    label: 'City',
-                    hintText: 'e.g. Bengaluru',
-                    controller: _cityController,
-                    validator: (v) => v!.isEmpty ? 'Enter city' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  const Text('I want to become', style: TextStyle(fontSize: 12, color: AppColors.primaryText)),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.borderDark),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        hint: const Text('Select an option', style: TextStyle(color: AppColors.secondaryText)),
-                        value: _selectedGoal,
-                        icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryText),
-                        items: const [
-                          DropdownMenuItem(value: 'professional', child: Text('Professional')),
-                          DropdownMenuItem(value: 'engineer', child: Text('Engineer')),
-                          DropdownMenuItem(value: 'ias', child: Text('IAS')),
-                          DropdownMenuItem(value: 'ips', child: Text('IPS')),
-                          DropdownMenuItem(value: 'teacher', child: Text('Teacher')),
-                          DropdownMenuItem(value: 'lawyer', child: Text('Lawyer')),
-                          DropdownMenuItem(value: 'nurse', child: Text('Nurse')),
-                          DropdownMenuItem(value: 'software_developer', child: Text('Software Developer')),
-                          DropdownMenuItem(value: 'accountant', child: Text('Accountant')),
-                          DropdownMenuItem(value: 'banker', child: Text('Banker')),
-                          DropdownMenuItem(value: 'other', child: Text('Other')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedGoal = value;
-                          });
-                        },
-                      ),
-                    ),
                   ),
                   
                   const SizedBox(height: 24),

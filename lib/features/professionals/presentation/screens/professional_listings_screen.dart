@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import 'dart:convert';
+import '../domain/professional_model.dart';
 import '../providers/professionals_provider.dart';
 import 'professional_details_screen.dart';
+import '../widgets/reviews_bottom_sheet.dart';
 
 class ProfessionalListingsScreen extends ConsumerStatefulWidget {
   final String? filterProfession;
@@ -171,7 +173,33 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               _buildInfoItem(Icons.work_history, '${doc.experienceYears} Years'),
-                              _buildInfoItem(Icons.star, '${doc.rating} (${doc.reviews})'),
+                              GestureDetector(
+                                onTap: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (ctx) => ReviewsBottomSheet(professional: doc),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.backgroundLight,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 16),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        doc.rating > doc.defaultRating ? doc.rating.toStringAsFixed(1) : doc.defaultRating.toStringAsFixed(1),
+                                        style: const TextStyle(color: AppColors.primaryText, fontSize: 13, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                               _buildInfoItem(Icons.currency_rupee, '${doc.consultationFee}'),
                             ],
                           ),

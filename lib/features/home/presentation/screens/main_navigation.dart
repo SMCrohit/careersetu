@@ -23,11 +23,17 @@ class MainNavigation extends ConsumerWidget {
       const BrainGamesScreen(),
     ];
 
-    return Scaffold(
-      body: IndexedStack(
-        index: currentIndex,
-        children: screens,
-      ),
+    return PopScope(
+      canPop: currentIndex == 0,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        ref.read(navigationIndexProvider.notifier).setIndex(0);
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: currentIndex,
+          children: screens,
+        ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: currentIndex,
         onTap: (index) {
@@ -48,6 +54,6 @@ class MainNavigation extends ConsumerWidget {
           BottomNavigationBarItem(icon: Icon(Icons.extension), label: 'Games'),
         ],
       ),
-    );
+    ));
   }
 }

@@ -6,9 +6,11 @@ class Professional {
   final String clinic;
   final int experienceYears;
   final double rating;
+  final double defaultRating;
   final int reviews;
   final int consultationFee;
   final String? imageUrl;
+  final String? description;
 
   Professional({
     required this.id,
@@ -18,9 +20,11 @@ class Professional {
     required this.clinic,
     required this.experienceYears,
     required this.rating,
+    required this.defaultRating,
     required this.reviews,
     required this.consultationFee,
     this.imageUrl,
+    this.description,
   });
 
   factory Professional.fromJson(Map<String, dynamic> json) {
@@ -45,10 +49,12 @@ class Professional {
       specialty: json['specialty'] ?? '',
       clinic: json['clinic'] ?? '',
       experienceYears: expYears,
-      rating: (json['rating'] ?? 4.5).toDouble(),
+      rating: (json['rating'] ?? json['default_rating'] ?? 4.5).toDouble(),
+      defaultRating: (json['default_rating'] ?? 4.5).toDouble(),
       reviews: json['reviews'] ?? 10,
       consultationFee: (json['consultation_fee'] ?? json['consultationFee'] ?? 0).toInt(),
       imageUrl: json['image_url'] ?? json['imageUrl'],
+      description: json['description'],
     );
   }
 }

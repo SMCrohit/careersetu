@@ -52,6 +52,8 @@ class JobBase(BaseModel):
     requirements: List[str] = []
     posted_time: str
     applicants: str
+    experience: str = "0-1 Years"
+    profession: str = ""
 
 class Job(JobBase, ORMBase):
     pass
@@ -77,6 +79,22 @@ class ProfessionalBase(BaseModel):
     experience: str
     consultation_fee: float
     image_url: Optional[str] = None
+    description: Optional[str] = None
+    default_rating: float = 0.0
+
+class ProfessionalReviewBase(BaseModel):
+    professional_id: UUID
+    rating: float
+    comment: Optional[str] = None
+
+class ProfessionalReviewCreate(BaseModel):
+    rating: float
+    comment: Optional[str] = None
+
+class ProfessionalReview(ProfessionalReviewBase, ORMBase):
+    user_id: UUID
+    user: Optional[UserBase] = None
+    professional: Optional[ProfessionalBase] = None
 
 class Professional(ProfessionalBase, ORMBase):
     pass

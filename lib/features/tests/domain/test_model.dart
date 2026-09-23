@@ -31,6 +31,7 @@ class TestModel {
   final String providerName;
   final int maxDiscountPercentage;
   final List<QuestionModel> questions;
+  final DateTime? createdDatetime;
 
   TestModel({
     required this.id,
@@ -42,6 +43,7 @@ class TestModel {
     this.providerName = 'CareerSetu Standard',
     this.maxDiscountPercentage = 0,
     required this.questions,
+    this.createdDatetime,
   });
 
   factory TestModel.fromJson(Map<String, dynamic> json) {
@@ -58,6 +60,7 @@ class TestModel {
               ?.map((e) => QuestionModel.fromJson(e))
               .toList() ??
           [],
+      createdDatetime: json['created_datetime'] != null ? DateTime.tryParse(json['created_datetime']) : null,
     );
   }
 }

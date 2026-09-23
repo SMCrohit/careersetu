@@ -11,7 +11,10 @@ class TestsRepository {
   Future<List<TestModel>> fetchAllTests() async {
     final response = await _apiClient.get('/tests');
     final List<dynamic> testsJson = response.data;
-    return testsJson.map((e) => TestModel.fromJson(e)).toList();
+    return testsJson
+        .map((e) => TestModel.fromJson(e))
+        .where((test) => test.questions.isNotEmpty)
+        .toList();
   }
 
   Future<TestModel> fetchTest(String id) async {

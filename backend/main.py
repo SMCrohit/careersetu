@@ -443,6 +443,70 @@ def update_professional(professional_id: str, professional_update: schemas.Profe
     auth.log_admin_action(db, admin, "UPDATE", "Professionals", professional_id)
     return db_professional
 
+# Professional Reviews
+@app.get("/api/professionals/{professional_id}/reviews", response_model=list[schemas.ProfessionalReview])
+def get_professional_reviews(professional_id: str, db: Session = Depends(get_db)):
+    return db.query(models.ProfessionalReview).filter(models.ProfessionalReview.professional_id == professional_id, models.ProfessionalReview.is_active == True).all()
+
+@app.post("/api/users/me/professionals/{professional_id}/review", response_model=schemas.ProfessionalReview)
+def submit_professional_review(professional_id: str, review: schemas.ProfessionalReviewCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    existing = db.query(models.ProfessionalReview).filter(models.ProfessionalReview.professional_id == professional_id, models.ProfessionalReview.user_id == current_user.id).first()
+    if existing:
+        existing.rating = review.rating
+        existing.comment = review.comment
+        db.commit()
+        db.refresh(existing)
+        return existing
+        
+    db_review = models.ProfessionalReview(
+        professional_id=professional_id,
+        user_id=current_user.id,
+        rating=review.rating,
+        comment=review.comment
+    )
+    db.add(db_review)
+    db.commit()
+    db.refresh(db_review)
+    return db_review
+
+@app.get("/api/admin/professional-reviews", response_model=list[schemas.ProfessionalReview])
+def admin_get_professional_reviews(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    return db.query(models.ProfessionalReview).filter(models.ProfessionalReview.is_active == True).all()
+
+@app.post("/api/admin/professional-reviews", response_model=schemas.ProfessionalReview)
+def admin_create_professional_review(review: schemas.ProfessionalReviewBase, user_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_review = models.ProfessionalReview(**review.model_dump(), user_id=user_id)
+    db.add(db_review)
+    db.commit()
+    db.refresh(db_review)
+    auth.log_admin_action(db, admin, "CREATE", "ProfessionalReviews", str(db_review.id))
+    return db_review
+
+@app.put("/api/admin/professional-reviews/{review_id}", response_model=schemas.ProfessionalReview)
+def admin_update_professional_review(review_id: str, review_update: schemas.ProfessionalReviewCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_review = db.query(models.ProfessionalReview).filter(models.ProfessionalReview.id == review_id, models.ProfessionalReview.is_active == True).first()
+    if not db_review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    
+    db_review.rating = review_update.rating
+    db_review.comment = review_update.comment
+    db.commit()
+    db.refresh(db_review)
+    auth.log_admin_action(db, admin, "UPDATE", "ProfessionalReviews", review_id)
+    return db_review
+
+@app.delete("/api/admin/professional-reviews/{review_id}")
+def admin_delete_professional_review(review_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_review = db.query(models.ProfessionalReview).filter(models.ProfessionalReview.id == review_id).first()
+    if not db_review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    db_review.is_active = False
+    from datetime import datetime
+    db_review.deleted_datetime = datetime.utcnow()
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "ProfessionalReviews", review_id)
+    return {"status": "Review soft deleted"}
+
 # Offers CRUD
 @app.get("/api/offers", response_model=list[schemas.Offer])
 def get_offers(db: Session = Depends(get_db)):
@@ -558,6 +622,16 @@ def get_my_appointments(db: Session = Depends(get_db), current_user: models.User
 
 @app.post("/api/users/me/appointments", response_model=schemas.ProfessionalAppointment)
 def create_appointment(app_req: schemas.ProfessionalAppointmentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if app_req.appointment_date == "Today":
+        now = datetime.now()
+        try:
+            time_obj = datetime.strptime(app_req.appointment_time, "%I:%M %p")
+            slot_datetime = now.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
+            if slot_datetime < now:
+                raise HTTPException(status_code=400, detail="Cannot book a past time slot for today.")
+        except ValueError:
+            pass
+            
     db_appointment = models.ProfessionalAppointment(**app_req.model_dump(), user_id=current_user.id)
     db.add(db_appointment)
     db.commit()

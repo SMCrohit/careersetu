@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/jobs_provider.dart';
+import '../widgets/job_filter_bottom_sheet.dart';
+import '../../domain/job_filter_state.dart';
 import 'job_details_screen.dart';
 
 class JobListingsScreen extends ConsumerStatefulWidget {
@@ -68,10 +70,36 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildFilterChip('Distance', filters.contains('Distance')),
-                  _buildFilterChip('Salary', filters.contains('Salary')),
-                  _buildFilterChip('Full-time', filters.contains('Full-time')),
-                  _buildFilterChip('Experience', filters.contains('Experience')),
+                  InkWell(
+                    onTap: () => _showFilterBottomSheet(context, filters),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        border: Border.all(color: AppColors.secondaryText),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.filter_list, size: 18, color: AppColors.primaryBrand),
+                          const SizedBox(width: 8),
+                          const Text('Filters', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
+                          if (filters.type != null || filters.experience != null || filters.profession != null || filters.location != null || filters.salary != null)
+                             Container(
+                               margin: const EdgeInsets.only(left: 8),
+                               padding: const EdgeInsets.all(4),
+                               decoration: const BoxDecoration(color: AppColors.primaryBrand, shape: BoxShape.circle),
+                             ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (filters.type != null) _buildActiveFilterChip(filters.type!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearType: true))),
+                  if (filters.experience != null) _buildActiveFilterChip(filters.experience!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearExperience: true))),
+                  if (filters.profession != null) _buildActiveFilterChip(filters.profession!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearProfession: true))),
+                  if (filters.location != null && filters.location!.isNotEmpty) _buildActiveFilterChip('Location: ${filters.location}', () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearLocation: true))),
+                  if (filters.salary != null && filters.salary!.isNotEmpty) _buildActiveFilterChip('Salary: ${filters.salary}', () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearSalary: true))),
                 ],
               ),
             ),
@@ -142,7 +170,24 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(job.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
+                                    Row(
+                                      children: [
+                                        Flexible(child: Text(job.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryBrand))),
+                                        if (job.createdDatetime != null && DateTime.now().difference(job.createdDatetime!).inDays <= 7)
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 8),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.shade600,
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            child: const Text(
+                                              'New',
+                                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                     const SizedBox(height: 4),
                                     Text(job.company, style: const TextStyle(fontSize: 14, color: AppColors.primaryText)),
                                     Text(job.location, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
@@ -168,34 +213,37 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, bool isSelected) {
-    return InkWell(
-      onTap: () {
-        final currentFilters = ref.read(jobFiltersProvider);
-        final newFilters = Set<String>.from(currentFilters);
-        if (isSelected) {
-          newFilters.remove(label);
-        } else {
-          newFilters.add(label);
-        }
-        ref.read(jobFiltersProvider.notifier).updateFilters(newFilters);
-      },
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF054C1E) : AppColors.white,
-          border: Border.all(color: isSelected ? const Color(0xFF054C1E) : AppColors.secondaryText),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? AppColors.white : AppColors.secondaryText,
+  void _showFilterBottomSheet(BuildContext context, JobFilterState currentFilters) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => JobFilterBottomSheet(
+        initialFilters: currentFilters,
+        onApply: (newFilters) {
+          ref.read(jobFiltersProvider.notifier).updateFilters(newFilters);
+        },
+      ),
+    );
+  }
+
+  Widget _buildActiveFilterChip(String label, VoidCallback onRemove) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF054C1E),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.white, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: onRemove,
+            child: const Icon(Icons.close, size: 14, color: AppColors.white),
           ),
-        ),
+        ],
       ),
     );
   }

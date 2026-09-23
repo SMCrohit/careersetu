@@ -55,7 +55,24 @@ class JobDetailsScreen extends ConsumerWidget {
                         ),
                         child: const Icon(Icons.business, size: 32, color: AppColors.primaryBrand),
                       ),
-                      Text(job.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
+                      Row(
+                        children: [
+                          Flexible(child: Text(job.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: AppColors.primaryBrand))),
+                          if (job.createdDatetime != null && DateTime.now().difference(job.createdDatetime!).inDays <= 7)
+                            Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade600,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Text(
+                                'New',
+                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                      ),
                       const SizedBox(height: 4),
                       Text('${job.company} • ${job.location.split('(')[0].trim()}', style: const TextStyle(fontSize: 16, color: AppColors.primaryText)),
                       const SizedBox(height: 4),

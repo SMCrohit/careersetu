@@ -56,6 +56,20 @@ const Appointments = () => {
     }
   };
 
+  const isAppointmentPast = (dateStr: string, timeStr: string) => {
+    try {
+      let dateToParse = dateStr;
+      if (dateStr === 'Today') {
+        const today = new Date();
+        dateToParse = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+      const appointmentDate = new Date(`${dateToParse} ${timeStr}`);
+      return new Date() > appointmentDate;
+    } catch (e) {
+      return true; // fallback
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -146,7 +160,9 @@ const Appointments = () => {
                       {appt.status === 'sent_to_doctor' && (
                         <button 
                           onClick={() => updateStatus(appt.id, 'completed')}
-                          className="px-3 py-1.5 bg-green-600 text-white rounded text-sm font-medium hover:bg-opacity-90 transition-colors"
+                          disabled={!isAppointmentPast(appt.appointment_date, appt.appointment_time)}
+                          className={`px-3 py-1.5 text-white rounded text-sm font-medium transition-colors ${!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-opacity-90'}`}
+                          title={!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'Cannot complete a future appointment' : ''}
                         >
                           Mark Completed
                         </button>

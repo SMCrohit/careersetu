@@ -283,11 +283,20 @@ const TestQuestions = () => {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-secondaryText mb-1">Select File (PDF or Excel)</label>
+            <label className="block text-sm font-medium text-secondaryText mb-1">Select File (PDF or Excel, Max 5MB)</label>
             <input 
               type="file" 
               accept=".pdf,.xlsx,.xls"
-              onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)}
+              onChange={(e) => {
+                const file = e.target.files ? e.target.files[0] : null;
+                if (file && file.size > 5 * 1024 * 1024) {
+                  showToast('File must be less than 5MB', 'error');
+                  e.target.value = '';
+                  setUploadFile(null);
+                  return;
+                }
+                setUploadFile(file);
+              }}
               className="w-full text-sm text-secondaryText file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primaryBrand hover:file:bg-blue-100" 
               required
             />

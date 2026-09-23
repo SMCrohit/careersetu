@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/jobs_repository.dart';
 import '../../domain/job_model.dart';
+import '../../domain/job_filter_state.dart';
 import '../../../../core/api/api_client.dart';
 
 class JobSearchQueryNotifier extends Notifier<String> {
@@ -10,12 +11,13 @@ class JobSearchQueryNotifier extends Notifier<String> {
 }
 final jobSearchQueryProvider = NotifierProvider<JobSearchQueryNotifier, String>(() => JobSearchQueryNotifier());
 
-class JobFiltersNotifier extends Notifier<Set<String>> {
+class JobFiltersNotifier extends Notifier<JobFilterState> {
   @override
-  Set<String> build() => {};
-  void updateFilters(Set<String> value) => state = value;
+  JobFilterState build() => JobFilterState();
+  void updateFilters(JobFilterState value) => state = value;
+  void clearFilters() => state = JobFilterState();
 }
-final jobFiltersProvider = NotifierProvider<JobFiltersNotifier, Set<String>>(() => JobFiltersNotifier());
+final jobFiltersProvider = NotifierProvider<JobFiltersNotifier, JobFilterState>(() => JobFiltersNotifier());
 
 class JobsNotifier extends AsyncNotifier<List<JobModel>> {
   int _page = 1;

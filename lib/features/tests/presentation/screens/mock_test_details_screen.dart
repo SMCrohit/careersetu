@@ -179,16 +179,33 @@ class MockTestDetailsScreen extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  test.tag.isNotEmpty ? test.tag : 'Skill Assessment', 
-                  style: const TextStyle(color: AppColors.primaryBrand, fontSize: 12, fontWeight: FontWeight.bold)
-                ),
+              Row(
+                children: [
+                  if (test.createdDatetime != null && DateTime.now().difference(test.createdDatetime!).inDays <= 7 && !isCompleted)
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade600,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Text(
+                        'New',
+                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      test.tag.isNotEmpty ? test.tag : 'Skill Assessment', 
+                      style: const TextStyle(color: AppColors.primaryBrand, fontSize: 12, fontWeight: FontWeight.bold)
+                    ),
+                  ),
+                ],
               ),
               if (test.maxDiscountPercentage > 0 && !isCompleted)
                 Container(

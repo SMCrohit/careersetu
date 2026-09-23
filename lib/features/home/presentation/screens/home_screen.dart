@@ -5,9 +5,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/navigation_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../professionals/presentation/screens/professional_listings_screen.dart';
-import '../../../professionals/presentation/screens/professional_details_screen.dart';
-import '../../../professionals/domain/professional_model.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../professionals/domain/professional_model.dart';
+import '../../professionals/presentation/screens/professional_details_screen.dart';
+import '../../professionals/presentation/widgets/reviews_bottom_sheet.dart';
+import '../../professionals/presentation/providers/professionals_provider.dart';
 import '../../../jobs/presentation/screens/applied_jobs_screen.dart';
 import '../../../appointments/presentation/screens/appointments_screen.dart';
 import '../../../tests/presentation/screens/my_tests_screen.dart';
@@ -202,7 +204,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
-                      height: 180,
+                      height: 200,
                       child: Consumer(
                         builder: (context, ref, _) {
                           final professionalsState = ref.watch(professionalsProvider);
@@ -251,7 +253,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                         Text(professional.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
                                         const SizedBox(height: 4),
                                         Text(professional.specialty, style: const TextStyle(color: AppColors.secondaryText, fontSize: 11), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                                        const SizedBox(height: 8),
+                                        const SizedBox(height: 4),
+                                        GestureDetector(
+                                          onTap: () {
+                                            showModalBottomSheet(
+                                              context: context,
+                                              isScrollControlled: true,
+                                              backgroundColor: Colors.transparent,
+                                              builder: (ctx) => ReviewsBottomSheet(professional: professional),
+                                            );
+                                          },
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 14),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                professional.rating > professional.defaultRating ? professional.rating.toStringAsFixed(1) : professional.defaultRating.toStringAsFixed(1),
+                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryText),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
                                         SizedBox(
                                           height: 30,
                                           width: double.infinity,

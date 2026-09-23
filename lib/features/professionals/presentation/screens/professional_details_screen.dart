@@ -5,12 +5,14 @@ import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_toast.dart';
 import '../../domain/professional_model.dart';
 import '../../../appointments/presentation/providers/appointments_provider.dart';
+import '../widgets/reviews_bottom_sheet.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 
 class ProfessionalDetailsScreen extends ConsumerStatefulWidget {
   final Professional professional;
-  const ProfessionalDetailsScreen({super.key, required this.professional});
+  final String? bookingContext;
+  const ProfessionalDetailsScreen({super.key, required this.professional, this.bookingContext});
 
   @override
   ConsumerState<ProfessionalDetailsScreen> createState() => _ProfessionalDetailsScreenState();
@@ -28,6 +30,21 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
     final now = DateTime.now();
     selectedDate = DateTime(now.year, now.month, now.day);
     availableDates = List.generate(30, (index) => DateTime(now.year, now.month, now.day).add(Duration(days: index)));
+  }
+
+  bool _isTimeSlotPassed(String timeStr) {
+    final now = DateTime.now();
+    final isToday = selectedDate.year == now.year && selectedDate.month == now.month && selectedDate.day == now.day;
+    if (!isToday) return false;
+
+    try {
+      final format = DateFormat('hh:mm a');
+      final time = format.parse(timeStr);
+      final slotTime = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, time.hour, time.minute);
+      return slotTime.isBefore(now);
+    } catch (e) {
+      return false;
+    }
   }
 
   @override
@@ -79,7 +96,20 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       _buildStatColumn('Experience', '${doc.experienceYears} Years'),
-                      _buildStatColumn('Rating', '${doc.rating} ★'),
+                      GestureDetector(
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (ctx) => ReviewsBottomSheet(professional: doc),
+                          );
+                        },
+                        child: _buildStatColumn(
+                          'Rating', 
+                          '${doc.rating > doc.defaultRating ? doc.rating.toStringAsFixed(1) : doc.defaultRating.toStringAsFixed(1)} ★'
+                        ),
+                      ),
                       _buildStatColumn('Reviews', '${doc.reviews}'),
                     ],
                   ),
@@ -98,7 +128,9 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                   const Text('About Professional', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
                   const SizedBox(height: 12),
                   Text(
-                    '${doc.name} is a highly experienced ${doc.specialty} at ${doc.clinic}. They specialize in providing holistic care and have a proven track record of successful treatments. Their approach combines modern medical practices with compassionate patient care.',
+                    doc.description != null && doc.description!.isNotEmpty 
+                        ? doc.description! 
+                        : 'No description provided.',
                     style: const TextStyle(fontSize: 14, color: AppColors.secondaryText, height: 1.5),
                   ),
                 ],
@@ -188,8 +220,9 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                     runSpacing: 12,
                     children: timeSlots.map((time) {
                       final isSelected = time == selectedTime;
+                      final isPassed = _isTimeSlotPassed(time);
                       return GestureDetector(
-                        onTap: () {
+                        onTap: isPassed ? null : () {
                           setState(() {
                             selectedTime = time;
                           });
@@ -197,15 +230,16 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           decoration: BoxDecoration(
-                            color: isSelected ? AppColors.primaryBrand : AppColors.white,
-                            border: Border.all(color: AppColors.primaryBrand),
+                            color: isPassed ? AppColors.backgroundLight : isSelected ? AppColors.primaryBrand : AppColors.white,
+                            border: Border.all(color: isPassed ? AppColors.border : isSelected ? AppColors.primaryBrand : AppColors.borderDark),
                             borderRadius: BorderRadius.circular(20), // Chips are usually rounded
                           ),
                           child: Text(
                             time,
                             style: TextStyle(
-                              color: isSelected ? AppColors.white : AppColors.primaryBrand,
+                              color: isPassed ? AppColors.secondaryText.withOpacity(0.5) : isSelected ? AppColors.white : AppColors.primaryBrand,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                              decoration: isPassed ? TextDecoration.lineThrough : null,
                             ),
                           ),
                         ),
@@ -218,7 +252,7 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
           ],
         ),
       ),
-      bottomNavigationBar: Container(
+      bottomNavigationBar: widget.bookingContext == 'past' ? null : Container(
         decoration: const BoxDecoration(
           color: AppColors.white,
           border: Border(top: BorderSide(color: AppColors.border)),
@@ -238,22 +272,28 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
               ),
               const SizedBox(width: 24),
               Expanded(
-                child: PrimaryButton(
-                  text: 'Book Appointment',
-                  onPressed: selectedTime == null
-                      ? () {
-                          CustomToast.showError(context, 'Please select a time slot first');
-                        }
-                      : () {
-                          // Book appointment
-                          final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
-                              ? 'Today' 
-                              : DateFormat('MMM d, yyyy').format(selectedDate);
-                          ref.read(appointmentsProvider.notifier).bookAppointment(doc, bookingDate, selectedTime!);
-                          CustomToast.showSuccess(context, 'Appointment booked successfully!');
-                          Navigator.pop(context); // Go back to directory
-                        },
-                ),
+                child: widget.bookingContext == 'upcoming'
+                    ? PrimaryButton(
+                        text: 'Already booked',
+                        backgroundColor: Colors.grey.shade400,
+                        onPressed: null,
+                      )
+                    : PrimaryButton(
+                        text: widget.bookingContext == 'past' ? 'Book Appointment Again' : 'Book Appointment',
+                        onPressed: selectedTime == null
+                            ? () {
+                                CustomToast.showError(context, 'Please select a time slot first');
+                              }
+                            : () {
+                                // Book appointment
+                                final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
+                                    ? 'Today' 
+                                    : DateFormat('MMM d, yyyy').format(selectedDate);
+                                ref.read(appointmentsProvider.notifier).bookAppointment(doc, bookingDate, selectedTime!);
+                                CustomToast.showSuccess(context, 'Appointment booked successfully!');
+                                Navigator.pop(context); // Go back to directory
+                              },
+                      ),
               ),
             ],
           ),

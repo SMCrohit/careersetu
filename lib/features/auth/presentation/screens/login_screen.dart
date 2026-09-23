@@ -34,7 +34,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       } else {
         if (!mounted) return;
         final error = ref.read(authProvider).error ?? 'Unknown error';
-        CustomToast.showError(context, error);
+        if (error == "User not found. Please sign up.") {
+          Navigator.pushNamed(context, '/registration', arguments: _mobileController.text);
+        } else {
+          CustomToast.showError(context, error);
+        }
       }
     }
   }
