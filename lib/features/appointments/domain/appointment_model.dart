@@ -28,6 +28,7 @@ class Appointment {
               clinic: '',
               experienceYears: 0,
               rating: 0,
+              defaultRating: 0,
               reviews: 0,
               consultationFee: 0,
             ),

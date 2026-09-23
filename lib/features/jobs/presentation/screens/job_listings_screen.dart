@@ -50,12 +50,33 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
           ),
           child: TextField(
             onChanged: (val) => ref.read(jobSearchQueryProvider.notifier).updateQuery(val),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Search titles, zip code...',
-              hintStyle: TextStyle(color: AppColors.secondaryText, fontSize: 14),
-              prefixIcon: Icon(Icons.search, color: AppColors.secondaryText),
+              hintStyle: const TextStyle(color: AppColors.secondaryText, fontSize: 14),
+              prefixIcon: const Icon(Icons.search, color: AppColors.secondaryText),
+              suffixIcon: IconButton(
+                icon: Stack(
+                  children: [
+                    const Icon(Icons.tune, color: AppColors.primaryBrand),
+                    if (filters.type != null || filters.experience != null || filters.profession != null || filters.location != null || filters.salary != null)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                onPressed: () => _showFilterBottomSheet(context, filters),
+              ),
               border: InputBorder.none,
-              contentPadding: EdgeInsets.symmetric(vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
             ),
           ),
         ),
@@ -70,31 +91,7 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  InkWell(
-                    onTap: () => _showFilterBottomSheet(context, filters),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        border: Border.all(color: AppColors.secondaryText),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.filter_list, size: 18, color: AppColors.primaryBrand),
-                          const SizedBox(width: 8),
-                          const Text('Filters', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
-                          if (filters.type != null || filters.experience != null || filters.profession != null || filters.location != null || filters.salary != null)
-                             Container(
-                               margin: const EdgeInsets.only(left: 8),
-                               padding: const EdgeInsets.all(4),
-                               decoration: const BoxDecoration(color: AppColors.primaryBrand, shape: BoxShape.circle),
-                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
+                  // Active filter chips
                   if (filters.type != null) _buildActiveFilterChip(filters.type!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearType: true))),
                   if (filters.experience != null) _buildActiveFilterChip(filters.experience!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearExperience: true))),
                   if (filters.profession != null) _buildActiveFilterChip(filters.profession!, () => ref.read(jobFiltersProvider.notifier).updateFilters(filters.copyWith(clearProfession: true))),
@@ -178,7 +175,7 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
                                             margin: const EdgeInsets.only(left: 8),
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                             decoration: BoxDecoration(
-                                              color: Colors.red.shade600,
+                                              color: AppColors.primaryBrand,
                                               borderRadius: BorderRadius.circular(16),
                                             ),
                                             child: const Text(

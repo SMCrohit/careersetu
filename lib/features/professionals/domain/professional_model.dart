@@ -51,7 +51,7 @@ class Professional {
       experienceYears: expYears,
       rating: (json['rating'] ?? json['default_rating'] ?? 4.5).toDouble(),
       defaultRating: (json['default_rating'] ?? 4.5).toDouble(),
-      reviews: json['reviews'] ?? 10,
+      reviews: json['reviews'] ?? 0,
       consultationFee: (json['consultation_fee'] ?? json['consultationFee'] ?? 0).toInt(),
       imageUrl: json['image_url'] ?? json['imageUrl'],
       description: json['description'],

@@ -81,11 +81,16 @@ class ProfessionalBase(BaseModel):
     image_url: Optional[str] = None
     description: Optional[str] = None
     default_rating: float = 0.0
+    reviews: Optional[int] = 0
+    rating: Optional[float] = None
 
 class ProfessionalReviewBase(BaseModel):
     professional_id: UUID
     rating: float
     comment: Optional[str] = None
+
+class AdminProfessionalReviewCreate(ProfessionalReviewBase):
+    user_id: UUID
 
 class ProfessionalReviewCreate(BaseModel):
     rating: float

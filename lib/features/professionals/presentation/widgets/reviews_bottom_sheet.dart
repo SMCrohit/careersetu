@@ -36,10 +36,10 @@ class ReviewsBottomSheet extends ConsumerWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 20),
+                        const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
                         const SizedBox(width: 4),
                         Text(
-                          '${professional.rating} / 5.0',
+                          '${professional.rating > professional.defaultRating ? professional.rating.toStringAsFixed(1) : professional.defaultRating.toStringAsFixed(1)} / 5.0  •  ${professional.reviews} Reviews',
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primaryText),
                         ),
                       ],
@@ -64,7 +64,7 @@ class ReviewsBottomSheet extends ConsumerWidget {
                   return const Padding(
                     padding: EdgeInsets.all(40),
                     child: Center(
-                      child: Text('No user reviews yet.', style: TextStyle(color: AppColors.secondaryText)),
+                      child: Text('No written reviews yet.', style: TextStyle(color: AppColors.secondaryText)),
                     ),
                   );
                 }
@@ -89,7 +89,7 @@ class ReviewsBottomSheet extends ConsumerWidget {
                             ),
                             Row(
                               children: [
-                                const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 16),
+                                const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
                                 const SizedBox(width: 4),
                                 Text(
                                   review.rating.toString(),

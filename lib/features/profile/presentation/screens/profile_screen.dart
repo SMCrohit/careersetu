@@ -470,7 +470,8 @@ class _ResumeBottomSheetState extends ConsumerState<_ResumeBottomSheet> {
 
       if (result != null && result.isNotEmpty) {
         final file = result.first;
-        if (file.size > 5 * 1024 * 1024) {
+        final fileSize = file.path != null ? File(file.path!).lengthSync() : 0;
+        if (fileSize > 5 * 1024 * 1024) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resume must be less than 5MB', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
           }

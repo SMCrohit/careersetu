@@ -7,7 +7,7 @@ import '../providers/tests_provider.dart';
 import 'package:file_saver/file_saver.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../core/widgets/custom_toast.dart';
-import '../utils/pdf_report_generator.dart';
+import '../../utils/pdf_report_generator.dart';
 
 class TestResultsScreen extends ConsumerStatefulWidget {
   const TestResultsScreen({super.key});
@@ -27,7 +27,7 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
       final attempted = state.selectedAnswers.length;
       final accuracy = attempted > 0 ? (correct / attempted * 100).toInt() : 0;
       final user = ref.read(authProvider);
-      final userName = user?.fullName ?? 'Student';
+      final userName = user.currentUser?.fullName ?? 'Student';
 
       final pdfBytes = await PdfReportGenerator.generateTestReport(
         state: state,
@@ -43,16 +43,15 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
       await FileSaver.instance.saveFile(
         name: fileName,
         bytes: pdfBytes,
-        ext: 'pdf',
         mimeType: MimeType.pdf,
       );
 
       if (mounted) {
-        CustomToast.show(context, 'Report downloaded to device!', isError: false);
+        CustomToast.showSuccess(context, 'Report downloaded to device!');
       }
     } catch (e) {
       if (mounted) {
-        CustomToast.show(context, 'Failed to download report.', isError: true);
+        CustomToast.showError(context, 'Failed to download report.');
       }
     } finally {
       if (mounted) {

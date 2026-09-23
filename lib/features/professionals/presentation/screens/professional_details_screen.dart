@@ -110,7 +110,17 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                           '${doc.rating > doc.defaultRating ? doc.rating.toStringAsFixed(1) : doc.defaultRating.toStringAsFixed(1)} ★'
                         ),
                       ),
-                      _buildStatColumn('Reviews', '${doc.reviews}'),
+                      GestureDetector(
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (ctx) => ReviewsBottomSheet(professional: doc),
+                          );
+                        },
+                        child: _buildStatColumn('Reviews', '${doc.reviews}'),
+                      ),
                     ],
                   ),
                 ],

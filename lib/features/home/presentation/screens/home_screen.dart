@@ -5,11 +5,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/navigation_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../professionals/domain/professional_model.dart';
-import '../../professionals/presentation/screens/professional_details_screen.dart';
-import '../../professionals/presentation/widgets/reviews_bottom_sheet.dart';
-import '../../professionals/presentation/providers/professionals_provider.dart';
+import '../../../professionals/domain/professional_model.dart';
+import '../../../professionals/presentation/screens/professional_details_screen.dart';
+import '../../../professionals/presentation/screens/professional_listings_screen.dart';
+import '../../../professionals/presentation/widgets/reviews_bottom_sheet.dart';
 import '../../../jobs/presentation/screens/applied_jobs_screen.dart';
 import '../../../appointments/presentation/screens/appointments_screen.dart';
 import '../../../tests/presentation/screens/my_tests_screen.dart';
@@ -266,7 +265,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 14),
+                                              const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
                                               const SizedBox(width: 2),
                                               Text(
                                                 professional.rating > professional.defaultRating ? professional.rating.toStringAsFixed(1) : professional.defaultRating.toStringAsFixed(1),

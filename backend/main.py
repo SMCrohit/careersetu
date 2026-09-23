@@ -408,7 +408,26 @@ async def upload_questions(test_id: str, file: UploadFile = File(...), admin: st
 # Doctors CRUD
 @app.get("/api/professionals", response_model=list[schemas.Professional])
 def get_professionals(db: Session = Depends(get_db)):
-    return db.query(models.Professional).filter(models.Professional.is_active == True).all()
+    results = db.query(
+        models.Professional,
+        func.count(models.ProfessionalReview.id).label("reviews_count"),
+        func.avg(models.ProfessionalReview.rating).label("avg_rating")
+    ).outerjoin(
+        models.ProfessionalReview, 
+        models.ProfessionalReview.professional_id == models.Professional.id
+    ).filter(
+        models.Professional.is_active == True
+    ).group_by(
+        models.Professional.id
+    ).all()
+    
+    professionals = []
+    for prof, reviews_count, avg_rating in results:
+        prof.reviews = reviews_count or 0
+        prof.rating = float(avg_rating) if avg_rating is not None else prof.default_rating
+        professionals.append(prof)
+        
+    return professionals
 
 @app.post("/api/professionals", response_model=schemas.Professional)
 def create_professional(professional: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -474,8 +493,8 @@ def admin_get_professional_reviews(db: Session = Depends(get_db), admin: str = D
     return db.query(models.ProfessionalReview).filter(models.ProfessionalReview.is_active == True).all()
 
 @app.post("/api/admin/professional-reviews", response_model=schemas.ProfessionalReview)
-def admin_create_professional_review(review: schemas.ProfessionalReviewBase, user_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_review = models.ProfessionalReview(**review.model_dump(), user_id=user_id)
+def admin_create_professional_review(review: schemas.AdminProfessionalReviewCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_review = models.ProfessionalReview(**review.model_dump())
     db.add(db_review)
     db.commit()
     db.refresh(db_review)

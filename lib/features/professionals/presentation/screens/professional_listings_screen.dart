@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import 'dart:convert';
-import '../domain/professional_model.dart';
+import '../../domain/professional_model.dart';
 import '../providers/professionals_provider.dart';
 import 'professional_details_screen.dart';
 import '../widgets/reviews_bottom_sheet.dart';
@@ -190,7 +190,7 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                                   ),
                                   child: Row(
                                     children: [
-                                      const Icon(Icons.star_rounded, color: AppColors.secondaryBrand, size: 16),
+                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
                                       const SizedBox(width: 4),
                                       Text(
                                         doc.rating > doc.defaultRating ? doc.rating.toStringAsFixed(1) : doc.defaultRating.toStringAsFixed(1),

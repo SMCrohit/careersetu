@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../core/widgets/custom_toast.dart';
-import '../../professionals/data/professionals_repository.dart';
-import '../../professionals/domain/professional_model.dart';
-import '../../professionals/presentation/screens/professional_details_screen.dart';
+import '../../../../core/widgets/custom_toast.dart';
+import '../../../professionals/data/professionals_repository.dart';
+import '../../../professionals/domain/professional_model.dart';
+import '../../../professionals/presentation/screens/professional_details_screen.dart';
 import '../providers/appointments_provider.dart';
 import '../../domain/appointment_model.dart';
 
@@ -213,7 +213,7 @@ class AppointmentsScreen extends ConsumerWidget {
                         return IconButton(
                           icon: Icon(
                             index < rating ? Icons.star_rounded : Icons.star_outline_rounded,
-                            color: AppColors.secondaryBrand,
+                            color: Colors.amber,
                             size: 40,
                           ),
                           onPressed: () => setState(() => rating = index + 1.0),
@@ -245,9 +245,9 @@ class AppointmentsScreen extends ConsumerWidget {
                           final repo = ref.read(professionalsRepositoryProvider);
                           await repo.submitReview(professional.id, rating, comment);
                           Navigator.pop(context);
-                          CustomToast.show(context, 'Review submitted successfully', isError: false);
+                          CustomToast.showSuccess(context, 'Review submitted successfully');
                         } catch (e) {
-                          CustomToast.show(context, 'Failed to submit review', isError: true);
+                          CustomToast.showError(context, 'Failed to submit review');
                         }
                       },
                       child: const Text('Submit Review', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
