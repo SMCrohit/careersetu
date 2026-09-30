@@ -26,6 +26,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Color bgColor = const Color(0xFFF0EBE1);
+  bool _hideProfileBanner = false;
 
   Future<void> _launchUrl(String urlString) async {
     final Uri url = Uri.parse(urlString);
@@ -59,8 +60,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 shape: BoxShape.circle,
                 color: AppColors.white,
               ),
-              child: ClipOval(
-                child: _buildUserAvatar(user?.profileImageUrl),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (user != null)
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: CircularProgressIndicator(
+                        value: user.profileCompletionPercentage,
+                        backgroundColor: Colors.grey.shade300,
+                        color: AppColors.primaryBrand,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: const BoxDecoration(shape: BoxShape.circle),
+                    child: ClipOval(
+                      child: _buildUserAvatar(user?.profileImageUrl),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -86,6 +108,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+            // Profile Completion Banner
+            if (user != null && user.profileCompletionPercentage < 1.0 && !_hideProfileBanner)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            value: user.profileCompletionPercentage,
+                            backgroundColor: Colors.grey.shade200,
+                            color: AppColors.primaryBrand,
+                            strokeWidth: 4,
+                          ),
+                          Text(
+                            '${(user.profileCompletionPercentage * 100).toInt()}%',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryBrand),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Complete your profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryText)),
+                          const SizedBox(height: 2),
+                          Text('Unlock more opportunities!', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pushNamed(context, '/profile'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: AppColors.primaryBrand.withOpacity(0.1),
+                      ),
+                      child: const Text('Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBrand)),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () => setState(() => _hideProfileBanner = true),
+                      child: const Icon(Icons.close, size: 20, color: AppColors.secondaryText),
+                    ),
+                  ],
+                ),
+              ),
+
             // Auto-scrolling Carousel Banner
             Consumer(
               builder: (context, ref, _) {
@@ -135,10 +221,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Welcome back, $name!', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 8),
-                  const Text('Here are your tools to advance your local career.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
-                  const SizedBox(height: 24),
                   
                   // 4 Quick Actions in 1 Row
                   GridView.count(

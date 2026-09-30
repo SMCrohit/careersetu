@@ -15,13 +15,11 @@ class CompleteProfileScreen extends ConsumerStatefulWidget {
 
 class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
   final _cityController = TextEditingController();
   String? _selectedGoal;
 
   @override
   void dispose() {
-    _emailController.dispose();
     _cityController.dispose();
     super.dispose();
   }
@@ -29,7 +27,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
   void _submit() async {
     if (_formKey.currentState!.validate() && _selectedGoal != null) {
       final success = await ref.read(authProvider.notifier).updateProfileDetails({
-        'email': _emailController.text,
         'city': _cityController.text,
         'goal': _selectedGoal,
       });
@@ -59,6 +56,13 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
         elevation: 0,
         centerTitle: false,
         automaticallyImplyLeading: false,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false),
+            child: const Text('Skip', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -72,20 +76,7 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                 const SizedBox(height: 8),
                 Text('Tell us a bit more about yourself to personalize your experience.', style: Theme.of(context).textTheme.bodyLarge),
                 const SizedBox(height: 32),
-                
-                CustomTextField(
-                  label: 'Email Address',
-                  hintText: 'Email (Optional)',
-                  keyboardType: TextInputType.emailAddress,
-                  controller: _emailController,
-                  validator: (v) {
-                    if (v != null && v.isNotEmpty && !v.contains('@')) {
-                      return 'Enter valid email';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
+
                 
                 CustomTextField(
                   label: 'City',

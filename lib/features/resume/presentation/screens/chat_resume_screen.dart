@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 
 import '../providers/resume_provider.dart';
 import 'resume_preview_screen.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 
 class ChatResumeScreen extends ConsumerStatefulWidget {
   const ChatResumeScreen({super.key});
@@ -15,6 +16,15 @@ class ChatResumeScreen extends ConsumerStatefulWidget {
 class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
   final TextEditingController _controller = TextEditingController();
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = ref.read(authProvider).currentUser;
+      ref.read(chatResumeProvider.notifier).initializeChat(user);
+    });
+  }
+
   void _sendMessage() {
     if (_controller.text.trim().isEmpty) return;
     ref.read(chatResumeProvider.notifier).sendMessage(_controller.text.trim());
@@ -23,7 +33,8 @@ class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final messages = ref.watch(chatResumeProvider);
+    final chatState = ref.watch(chatResumeProvider);
+    final messages = chatState.messages;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -44,10 +55,15 @@ class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
         children: [
           Expanded(
             child: ListView.builder(
+              reverse: true,
               padding: const EdgeInsets.all(16),
-              itemCount: messages.length,
+              itemCount: messages.length + (chatState.isTyping ? 1 : 0),
               itemBuilder: (context, index) {
-                final msg = messages[index];
+                if (chatState.isTyping && index == 0) {
+                  return _buildTypingIndicator();
+                }
+                final msgIndex = chatState.isTyping ? index - 1 : index;
+                final msg = messages[messages.length - 1 - msgIndex];
                 return _buildMessage(msg.text, msg.isUser);
               },
             ),
@@ -115,6 +131,37 @@ class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
             fontSize: 14,
             height: 1.4,
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypingIndicator() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+          ),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBrand),
+            ),
+            SizedBox(width: 8),
+            Text('AI is typing...', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+          ],
         ),
       ),
     );

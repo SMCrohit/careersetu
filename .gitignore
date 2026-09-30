@@ -52,3 +52,10 @@ backend/__pycache__/
 # Docs
 README.md
 career-setu-*-firebase-adminsdk-*.json
+
+# Android Keystore and Keys
+android/key.properties
+android/app/*.jks
+*.jks
+
+.env

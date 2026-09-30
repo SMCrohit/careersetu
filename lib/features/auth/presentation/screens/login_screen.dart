@@ -5,8 +5,8 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../../core/widgets/custom_toast.dart';
+import '../../domain/user_model.dart';
 import '../providers/auth_provider.dart';
-
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -26,19 +26,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   void _sendOtp() async {
     if (_formKey.currentState!.validate()) {
-      final success = await ref.read(authProvider.notifier).requestOtp(_mobileController.text);
+      bool success = await ref.read(authProvider.notifier).requestOtp(_mobileController.text);
+      bool isSignup = false;
+
+      if (!success) {
+        final error = ref.read(authProvider).error;
+        if (error == "User not found. Please sign up.") {
+          // Send signup OTP instead
+          final tempUser = User(
+            mobileNumber: _mobileController.text,
+            fullName: '',
+            email: '',
+            city: '',
+            goal: '',
+          );
+          success = await ref.read(authProvider.notifier).requestSignupOtp(tempUser);
+          isSignup = true;
+        }
+      }
+
       if (success) {
         CustomToast.showSuccess(context, 'OTP sent successfully!');
         if (!mounted) return;
-        Navigator.pushNamed(context, '/otp', arguments: _mobileController.text);
+        Navigator.pushNamed(context, '/otp', arguments: {
+          'mobileNumber': _mobileController.text,
+          'isSignup': isSignup,
+          'signupData': isSignup ? User(
+            mobileNumber: _mobileController.text,
+            fullName: '',
+            email: '',
+            city: '',
+            goal: '',
+          ) : null,
+        });
       } else {
         if (!mounted) return;
         final error = ref.read(authProvider).error ?? 'Unknown error';
-        if (error == "User not found. Please sign up.") {
-          Navigator.pushNamed(context, '/registration', arguments: _mobileController.text);
-        } else {
-          CustomToast.showError(context, error);
-        }
+        CustomToast.showError(context, error);
       }
     }
   }
@@ -118,25 +142,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         onPressed: _sendOtp,
                       ),
                 const SizedBox(height: 24),
-                Center(
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.pushNamed(context, '/registration');
-                    },
-                    child: RichText(
-                      text: const TextSpan(
-                        text: "Don't have an account? ",
-                        style: TextStyle(color: AppColors.secondaryText, fontSize: 14),
-                        children: [
-                          TextSpan(
-                            text: 'Sign Up',
-                            style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),

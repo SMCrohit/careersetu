@@ -18,45 +18,28 @@ class RegistrationScreen extends ConsumerStatefulWidget {
 class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _mobileController = TextEditingController();
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments;
-    if (args != null && args is String && _mobileController.text.isEmpty) {
-      _mobileController.text = args;
-    }
-  }
+  final _emailController = TextEditingController();
 
   @override
   void dispose() {
     _nameController.dispose();
-    _mobileController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
-  void _signup() async {
+  void _saveProfile() async {
     if (_formKey.currentState!.validate()) {
-      final user = User(
-        mobileNumber: _mobileController.text,
-        fullName: _nameController.text,
-        email: '',
-        city: '',
-        goal: '',
-      );
-      
-      final success = await ref.read(authProvider.notifier).requestSignupOtp(user);
+      final success = await ref.read(authProvider.notifier).updateProfileDetails({
+        'full_name': _nameController.text,
+        'email': _emailController.text,
+      });
+
       if (success) {
         if (!mounted) return;
-        Navigator.pushNamed(context, '/otp', arguments: {
-          'mobileNumber': _mobileController.text,
-          'isSignup': true,
-          'signupData': user,
-        });
+        Navigator.pushNamedAndRemoveUntil(context, '/complete_profile', (route) => false);
       } else {
         if (!mounted) return;
-        final error = ref.read(authProvider).error ?? 'Signup failed';
+        final error = ref.read(authProvider).error ?? 'Profile update failed';
         CustomToast.showError(context, error);
       }
     }
@@ -74,13 +57,6 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
         elevation: 0,
         centerTitle: false,
         automaticallyImplyLeading: false,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Sign In', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -104,14 +80,15 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   const SizedBox(height: 16),
                   
                   CustomTextField(
-                    label: 'Mobile Number',
-                    hintText: '9876543210',
-                    prefixText: '+91 ',
-                    keyboardType: TextInputType.phone,
-                    controller: _mobileController,
-                    maxLength: 10,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (v) => v!.length != 10 ? 'Must be 10 digits' : null,
+                    label: 'Email Address',
+                    hintText: 'e.g. name@example.com',
+                    keyboardType: TextInputType.emailAddress,
+                    controller: _emailController,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Enter email address';
+                      if (!v.contains('@')) return 'Enter a valid email';
+                      return null;
+                    },
                   ),
                   
                   const SizedBox(height: 24),
@@ -125,8 +102,8 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   authState.isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : PrimaryButton(
-                          text: 'Agree & Join',
-                          onPressed: _signup,
+                          text: 'Continue',
+                          onPressed: _saveProfile,
                         ),
                 ],
               ),

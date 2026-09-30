@@ -5,8 +5,10 @@ import 'package:pdf/pdf.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../providers/resume_provider.dart';
 import 'resume_pdf_generator.dart';
 import 'edit_resume_screen.dart';
+import '../../../auth/domain/user_model.dart';
 
 class ResumePreviewScreen extends ConsumerStatefulWidget {
   const ResumePreviewScreen({super.key});
@@ -38,21 +40,31 @@ class _ResumePreviewScreenState extends ConsumerState<ResumePreviewScreen> {
     super.dispose();
   }
 
-  void _downloadPdf(BuildContext context) async {
-    final user = ref.read(authProvider).currentUser;
-    if (user == null) return;
-    
-    final pdfBytes = await ResumePdfGenerator.generateResume(user, _selectedTemplateIndex);
-    await Printing.sharePdf(bytes: pdfBytes, filename: '${user.fullName.replaceAll(' ', '_')}_Resume.pdf');
+  void _downloadPdf(BuildContext context, User userForPdf) async {
+    final pdfBytes = await ResumePdfGenerator.generateResume(userForPdf, _selectedTemplateIndex);
+    await Printing.sharePdf(bytes: pdfBytes, filename: '${userForPdf.fullName.replaceAll(' ', '_')}_Resume.pdf');
   }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).currentUser;
+    final chatState = ref.watch(chatResumeProvider);
 
     if (user == null) {
       return const Scaffold(body: Center(child: Text('User not found')));
     }
+
+    // Merge chat state resume data if it has data
+    final userForPdf = User(
+      id: user.id,
+      mobileNumber: user.mobileNumber,
+      fullName: user.fullName,
+      email: user.email,
+      city: user.city,
+      goal: user.goal,
+      profileImageUrl: user.profileImageUrl,
+      resumeData: chatState.resumeData.isNotEmpty ? chatState.resumeData : user.resumeData,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -80,17 +92,29 @@ class _ResumePreviewScreenState extends ConsumerState<ResumePreviewScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 0),
                         child: IgnorePointer(
                           ignoring: !isSelected,
-                          child: PdfPreview(
-                            build: (format) => ResumePdfGenerator.generateResume(user, index),
-                            allowPrinting: false,
-                            allowSharing: false,
-                            canChangePageFormat: false,
-                            canChangeOrientation: false,
-                            canDebug: false,
-                            initialPageFormat: PdfPageFormat.a4,
-                            useActions: false,
-                            scrollViewDecoration: const BoxDecoration(color: AppColors.background),
-                          ),
+                            child: PdfPreview(
+                              build: (format) => ResumePdfGenerator.generateResume(userForPdf, index),
+                              allowPrinting: false,
+                              allowSharing: false,
+                              canChangePageFormat: false,
+                              canChangeOrientation: false,
+                              canDebug: false,
+                              initialPageFormat: PdfPageFormat.a4,
+                              useActions: false,
+                              scrollViewDecoration: const BoxDecoration(color: AppColors.background),
+                              pdfPreviewPageDecoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                            ),
                         ),
                       );
                     },
@@ -127,7 +151,7 @@ class _ResumePreviewScreenState extends ConsumerState<ResumePreviewScreen> {
                       Expanded(
                         child: PrimaryButton(
                           text: 'Download PDF',
-                          onPressed: () => _downloadPdf(context),
+                          onPressed: () => _downloadPdf(context, userForPdf),
                         ),
                       )
                     ],

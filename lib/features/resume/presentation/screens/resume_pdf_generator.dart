@@ -23,14 +23,25 @@ class ResumePdfGenerator {
     if (_cachedProfileImage != null && _cachedImageUrl == url) return;
 
     try {
-      final dio = Dio();
-      final response = await dio.get(
-        url,
-        options: Options(responseType: ResponseType.bytes),
-      );
-      if (response.statusCode == 200) {
-        _cachedProfileImage = pw.MemoryImage(Uint8List.fromList(response.data));
+      if (url.startsWith('data:image')) {
+        final base64String = url.split(',').last.replaceAll(RegExp(r'\s+'), '');
+        String padded = base64String;
+        int padding = padded.length % 4;
+        if (padding != 0) padded += '=' * (4 - padding);
+        
+        final bytes = Uri.parse('data:image/jpeg;base64,$padded').data!.contentAsBytes();
+        _cachedProfileImage = pw.MemoryImage(bytes);
         _cachedImageUrl = url;
+      } else {
+        final dio = Dio();
+        final response = await dio.get(
+          url,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        if (response.statusCode == 200) {
+          _cachedProfileImage = pw.MemoryImage(Uint8List.fromList(response.data));
+          _cachedImageUrl = url;
+        }
       }
     } catch (e) {
       print('Error fetching profile image: $e');

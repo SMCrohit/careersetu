@@ -44,4 +44,16 @@ class User {
       if (resumeData != null) 'resume_data': resumeData,
     };
   }
+
+  double get profileCompletionPercentage {
+    int completed = 0;
+    if (mobileNumber.isNotEmpty) completed++;
+    if (fullName.isNotEmpty) completed++;
+    if (email.isNotEmpty) completed++;
+    if (city.isNotEmpty) completed++;
+    if (goal.isNotEmpty) completed++;
+    if (resumeData != null && resumeData!.isNotEmpty) completed++;
+    if (profileImageUrl != null && profileImageUrl!.isNotEmpty) completed++;
+    return completed / 7.0;
+  }
 }

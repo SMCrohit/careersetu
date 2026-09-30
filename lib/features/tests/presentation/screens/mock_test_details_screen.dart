@@ -13,8 +13,6 @@ class MockTestDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final testsAsync = ref.watch(allTestsProvider);
-    final completedTestsAsync = ref.watch(completedTestsProvider);
 
     return DefaultTabController(
       length: 2,
@@ -36,43 +34,55 @@ class MockTestDetailsScreen extends ConsumerWidget {
             ],
           ),
         ),
-        body: testsAsync.when(
-          data: (tests) {
-            if (tests.isEmpty) return const Center(child: Text("No tests found."));
-            
-            return completedTestsAsync.when(
-              data: (completedTests) {
-                final availableTests = tests.where((t) => !completedTests.containsKey(t.id)).toList();
-                final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
-
-                return TabBarView(
-                  children: [
-                    _buildAvailableTests(context, ref, availableTests),
-                    _buildMyAttempts(context, ref, myAttempts, completedTests),
-                  ],
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, st) => Center(child: Text('Failed to load tests')),
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, st) => Center(child: Text('Error: $e')),
+        body: TabBarView(
+          children: [
+            const _AvailableTestsList(),
+            const _AttemptedTestsList(),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildAvailableTests(BuildContext context, WidgetRef ref, List<TestModel> tests) {
-    Future<void> onRefresh() async {
-      ref.invalidate(allTestsProvider);
-      ref.invalidate(completedTestsProvider);
-      await Future.delayed(const Duration(milliseconds: 500));
+class _AvailableTestsList extends ConsumerStatefulWidget {
+  const _AvailableTestsList();
+  @override
+  ConsumerState<_AvailableTestsList> createState() => _AvailableTestsListState();
+}
+
+class _AvailableTestsListState extends ConsumerState<_AvailableTestsList> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      ref.read(availableTestsProvider.notifier).fetchNextPage();
     }
+  }
 
-    if (tests.isEmpty) {
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(availableTestsProvider);
+
+    if (state.items.isEmpty && state.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (state.items.isEmpty) {
       return RefreshIndicator(
-        onRefresh: onRefresh,
+        onRefresh: () => ref.read(availableTestsProvider.notifier).refresh(),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
@@ -86,34 +96,66 @@ class MockTestDetailsScreen extends ConsumerWidget {
     }
     
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: () => ref.read(availableTestsProvider.notifier).refresh(),
       child: ListView.builder(
+        controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
-        itemCount: tests.length,
+        itemCount: state.items.length + (state.hasMore ? 1 : 0),
         itemBuilder: (context, index) {
-          final test = tests[index];
-          return _buildTestCard(
-            context: context,
-            ref: ref,
-            test: test,
-            isCompleted: false,
-          );
+          if (index == state.items.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final test = state.items[index];
+          return _TestCard(test: test, isCompleted: false);
         },
       ),
     );
   }
+}
 
-  Widget _buildMyAttempts(BuildContext context, WidgetRef ref, List<TestModel> tests, Map<String, int> completedTests) {
-    Future<void> onRefresh() async {
-      ref.invalidate(allTestsProvider);
-      ref.invalidate(completedTestsProvider);
-      await Future.delayed(const Duration(milliseconds: 500));
+class _AttemptedTestsList extends ConsumerStatefulWidget {
+  const _AttemptedTestsList();
+  @override
+  ConsumerState<_AttemptedTestsList> createState() => _AttemptedTestsListState();
+}
+
+class _AttemptedTestsListState extends ConsumerState<_AttemptedTestsList> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      ref.read(attemptedTestsProvider.notifier).fetchNextPage();
     }
+  }
 
-    if (tests.isEmpty) {
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(attemptedTestsProvider);
+    final completedTestsAsync = ref.watch(completedTestsProvider);
+
+    if (state.items.isEmpty && state.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (state.items.isEmpty) {
       return RefreshIndicator(
-        onRefresh: onRefresh,
+        onRefresh: () => ref.read(attemptedTestsProvider.notifier).refresh(),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
@@ -127,36 +169,45 @@ class MockTestDetailsScreen extends ConsumerWidget {
     }
     
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: () => ref.read(attemptedTestsProvider.notifier).refresh(),
       child: ListView.builder(
+        controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
-        itemCount: tests.length,
+        itemCount: state.items.length + (state.hasMore ? 1 : 0),
         itemBuilder: (context, index) {
-          final test = tests[index];
-          return _buildTestCard(
-            context: context,
-            ref: ref,
-            test: test,
-            isCompleted: true,
-            score: completedTests[test.id],
-          );
+          if (index == state.items.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final test = state.items[index];
+          final score = completedTestsAsync.value?[test.id];
+          return _TestCard(test: test, isCompleted: true, score: score);
         },
       ),
     );
   }
+}
 
-  Widget _buildTestCard({
-    required BuildContext context, 
-    required WidgetRef ref, 
-    required TestModel test, 
-    required bool isCompleted, 
-    int? score
-  }) {
+class _TestCard extends ConsumerWidget {
+  final TestModel test;
+  final bool isCompleted;
+  final int? score;
+
+  const _TestCard({
+    required this.test,
+    required this.isCompleted,
+    this.score,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     // Determine the discount unlocked if completed
     int discountUnlocked = 0;
     if (isCompleted && score != null) {
-      double percentage = score / test.questions.length;
+      double percentage = score! / test.questions.length;
       if (percentage >= 0.8) {
         discountUnlocked = test.maxDiscountPercentage;
       } else if (percentage >= 0.5) {

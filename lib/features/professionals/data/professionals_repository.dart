@@ -41,6 +41,15 @@ class ProfessionalsRepository {
     return data.map((json) => ProfessionalReview.fromJson(json)).toList();
   }
 
+  Future<ProfessionalReview?> getMyReview(String professionalId) async {
+    try {
+      final response = await _apiClient.get('/users/me/professionals/$professionalId/review');
+      return ProfessionalReview.fromJson(response.data);
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<ProfessionalReview> submitReview(String professionalId, double rating, String comment) async {
     final response = await _apiClient.post(
       '/users/me/professionals/$professionalId/review',

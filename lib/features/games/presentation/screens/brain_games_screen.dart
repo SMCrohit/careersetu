@@ -74,25 +74,25 @@ class BrainGamesScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             // Coming Soon Banner
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.extension_outlined, size: 48, color: Colors.grey.shade400),
-                  const SizedBox(height: 12),
-                  const Text('More coming soon...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText)),
-                  const SizedBox(height: 4),
-                  Text('We are adding more games to challenge your brain!', style: TextStyle(fontSize: 13, color: Colors.grey.shade500), textAlign: TextAlign.center),
-                ],
-              ),
-            ),
+            // Container(
+            //   width: double.infinity,
+            //   padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            //   decoration: BoxDecoration(
+            //     color: Colors.grey.shade50,
+            //     borderRadius: BorderRadius.circular(12),
+            //     border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
+            //   ),
+            //   child: Column(
+            //     mainAxisAlignment: MainAxisAlignment.center,
+            //     children: [
+            //       Icon(Icons.extension_outlined, size: 48, color: Colors.grey.shade400),
+            //       const SizedBox(height: 12),
+            //       const Text('More coming soon...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText)),
+            //       const SizedBox(height: 4),
+            //       Text('We are adding more games to challenge your brain!', style: TextStyle(fontSize: 13, color: Colors.grey.shade500), textAlign: TextAlign.center),
+            //     ],
+            //   ),
+            // ),
           ],
         ),
       ),

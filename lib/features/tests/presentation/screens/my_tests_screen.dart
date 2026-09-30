@@ -6,12 +6,37 @@ import '../../domain/test_model.dart';
 import '../providers/tests_provider.dart';
 import 'active_test_screen.dart';
 
-class MyTestsScreen extends ConsumerWidget {
+class MyTestsScreen extends ConsumerStatefulWidget {
   const MyTestsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final testsAsync = ref.watch(allTestsProvider);
+  ConsumerState<MyTestsScreen> createState() => _MyTestsScreenState();
+}
+
+class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      ref.read(attemptedTestsProvider.notifier).fetchNextPage();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(attemptedTestsProvider);
     final completedTestsAsync = ref.watch(completedTestsProvider);
 
     return Scaffold(
@@ -22,52 +47,54 @@ class MyTestsScreen extends ConsumerWidget {
         elevation: 1,
         iconTheme: const IconThemeData(color: AppColors.primaryBrand),
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(allTestsProvider);
-          ref.invalidate(completedTestsProvider);
-          await Future.delayed(const Duration(milliseconds: 500));
-        },
-        child: testsAsync.when(
-          data: (tests) {
-            return completedTestsAsync.when(
-              data: (completedTests) {
-                final myAttempts = tests.where((t) => completedTests.containsKey(t.id)).toList();
-                
-                if (myAttempts.isEmpty) {
-                  return SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                    child: Container(
-                      height: MediaQuery.of(context).size.height - kToolbarHeight,
-                      alignment: Alignment.center,
-                      child: const Text("You haven't taken any tests yet."),
-                    ),
+      body: Builder(
+        builder: (context) {
+          if (state.items.isEmpty && state.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (state.items.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: () => ref.read(attemptedTestsProvider.notifier).refresh(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.5,
+                    child: const Center(child: Text("You haven't taken any tests yet.")),
+                  ),
+                ],
+              ),
+            );
+          }
+          
+          return RefreshIndicator(
+            onRefresh: () => ref.read(attemptedTestsProvider.notifier).refresh(),
+            child: ListView.builder(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16.0),
+              itemCount: state.items.length + (state.hasMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index == state.items.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
                   );
                 }
-                
-                return ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                  padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
-                  itemCount: myAttempts.length,
-                  itemBuilder: (context, index) {
-                    final test = myAttempts[index];
-                    return _buildTestCard(
-                      context: context,
-                      ref: ref,
-                      test: test,
-                      isCompleted: true,
-                      score: completedTests[test.id],
-                    );
-                  },
+                final test = state.items[index];
+                final score = completedTestsAsync.value?[test.id];
+                return _buildTestCard(
+                  context: context,
+                  ref: ref,
+                  test: test,
+                  isCompleted: true,
+                  score: score,
                 );
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, st) => const Center(child: Text('Failed to load completed tests')),
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, st) => Center(child: Text('Error: $e')),
-        ),
+            ),
+          );
+        },
       ),
     );
   }

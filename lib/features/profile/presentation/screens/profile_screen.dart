@@ -71,8 +71,28 @@ class ProfileScreen extends ConsumerWidget {
                               ],
                               color: AppColors.backgroundLight,
                             ),
-                            child: ClipOval(
-                              child: _buildProfileImage(user.profileImageUrl),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 100,
+                                  height: 100,
+                                  child: CircularProgressIndicator(
+                                    value: user.profileCompletionPercentage,
+                                    backgroundColor: Colors.grey.shade300,
+                                    color: AppColors.primaryBrand,
+                                    strokeWidth: 4,
+                                  ),
+                                ),
+                                Container(
+                                  width: 88,
+                                  height: 88,
+                                  decoration: const BoxDecoration(shape: BoxShape.circle),
+                                  child: ClipOval(
+                                    child: _buildProfileImage(user.profileImageUrl),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -82,16 +102,31 @@ class ProfileScreen extends ConsumerWidget {
                           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryText),
                         ),
                         const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              user.email,
-                              style: const TextStyle(fontSize: 14, color: AppColors.secondaryText),
-                            ),
-                            const SizedBox(width: 8),
-                            const Icon(Icons.edit_outlined, size: 16, color: AppColors.primaryBrand),
-                          ],
+                        GestureDetector(
+                          onTap: () => _showEditNameEmailBottomSheet(context, user),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                user.email.isEmpty ? 'Add Email' : user.email,
+                                style: const TextStyle(fontSize: 14, color: AppColors.secondaryText),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.edit_outlined, size: 16, color: AppColors.primaryBrand),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryBrand.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Profile Completion: ${(user.profileCompletionPercentage * 100).toInt()}%',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBrand),
+                          ),
                         ),
                       ],
                     ),
@@ -168,6 +203,16 @@ class ProfileScreen extends ConsumerWidget {
       useRootNavigator: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _EditProfileBottomSheet(title: title, fieldKey: fieldKey, currentValue: currentValue),
+    );
+  }
+
+  void _showEditNameEmailBottomSheet(BuildContext context, User user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _EditNameEmailBottomSheet(user: user),
     );
   }
 
@@ -723,6 +768,141 @@ class _ResumeBottomSheetState extends ConsumerState<_ResumeBottomSheet> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _EditNameEmailBottomSheet extends ConsumerStatefulWidget {
+  final User user;
+
+  const _EditNameEmailBottomSheet({required this.user});
+
+  @override
+  ConsumerState<_EditNameEmailBottomSheet> createState() => _EditNameEmailBottomSheetState();
+}
+
+class _EditNameEmailBottomSheetState extends ConsumerState<_EditNameEmailBottomSheet> {
+  late TextEditingController _nameController;
+  late TextEditingController _emailController;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.user.fullName);
+    _emailController = TextEditingController(text: widget.user.email);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  void _save() async {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Name cannot be empty', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
+      return;
+    }
+    
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Email cannot be empty', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    
+    final data = {
+      'full_name': name,
+      'email': email,
+    };
+    
+    final success = await ref.read(authProvider.notifier).updateProfileDetails(data);
+    
+    if (mounted) {
+      setState(() => _isLoading = false);
+      Navigator.pop(context);
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.success));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update profile', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 24,
+        left: 24, right: 24, top: 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Edit Profile Details', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Text('Full Name', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _nameController,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.borderDark)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.borderDark)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primaryBrand)),
+              filled: true,
+              fillColor: AppColors.backgroundLight,
+              hintText: 'Enter your full name',
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text('Email Address', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.borderDark)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.borderDark)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primaryBrand)),
+              filled: true,
+              fillColor: AppColors.backgroundLight,
+              hintText: 'Enter your email',
+            ),
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryBrand,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              child: _isLoading 
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+          ),
+        ],
       ),
     );
   }

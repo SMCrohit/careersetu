@@ -92,6 +92,9 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
     }
 
     if (authState.currentUser != null) {
+      if (authState.currentUser!.fullName.isEmpty || authState.currentUser!.email.isEmpty) {
+        return const RegistrationScreen();
+      }
       if (authState.currentUser!.city.isEmpty || authState.currentUser!.goal.isEmpty) {
         return const CompleteProfileScreen();
       }

@@ -8,8 +8,12 @@ class TestsRepository {
 
   TestsRepository(this._apiClient);
 
-  Future<List<TestModel>> fetchAllTests() async {
-    final response = await _apiClient.get('/tests');
+  Future<List<TestModel>> fetchAllTests({String status = 'all', int skip = 0, int limit = 20}) async {
+    final response = await _apiClient.get('/tests', queryParameters: {
+      'status': status,
+      'skip': skip,
+      'limit': limit,
+    });
     final List<dynamic> testsJson = response.data;
     return testsJson
         .map((e) => TestModel.fromJson(e))

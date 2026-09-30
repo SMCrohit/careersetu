@@ -37,9 +37,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     }
 
     if (success) {
-      CustomToast.showSuccess(context, isSignup ? 'Registration Successful!' : 'Login Successful!');
+      CustomToast.showSuccess(context, isSignup ? 'OTP Verified!' : 'Login Successful!');
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
+      if (isSignup) {
+        Navigator.pushNamedAndRemoveUntil(context, '/registration', (route) => false);
+      } else {
+        Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
+      }
     } else {
       if (!mounted) return;
       final error = ref.read(authProvider).error ?? 'Invalid OTP';

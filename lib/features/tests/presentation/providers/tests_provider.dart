@@ -172,7 +172,103 @@ final activeTestProvider = NotifierProvider<ActiveTestNotifier, ActiveTestState>
   return ActiveTestNotifier();
 });
 
-final allTestsProvider = FutureProvider<List<TestModel>>((ref) async {
-  final repo = ref.read(testsRepositoryProvider);
-  return repo.fetchAllTests();
+class PaginatedTestsState {
+  final List<TestModel> items;
+  final bool isLoading;
+  final bool hasMore;
+  final int currentSkip;
+  final String status;
+
+  PaginatedTestsState({
+    this.items = const [],
+    this.isLoading = false,
+    this.hasMore = true,
+    this.currentSkip = 0,
+    required this.status,
+  });
+
+  PaginatedTestsState copyWith({
+    List<TestModel>? items,
+    bool? isLoading,
+    bool? hasMore,
+    int? currentSkip,
+    String? status,
+  }) {
+    return PaginatedTestsState(
+      items: items ?? this.items,
+      isLoading: isLoading ?? this.isLoading,
+      hasMore: hasMore ?? this.hasMore,
+      currentSkip: currentSkip ?? this.currentSkip,
+      status: status ?? this.status,
+    );
+  }
+}
+
+class PaginatedTestsNotifier extends Notifier<PaginatedTestsState> {
+  final String status;
+
+  PaginatedTestsNotifier(this.status);
+
+  @override
+  PaginatedTestsState build() {
+    _fetchInitial();
+    return PaginatedTestsState(status: status, isLoading: true);
+  }
+
+  Future<void> _fetchInitial() async {
+    try {
+      final repo = ref.read(testsRepositoryProvider);
+      final fetched = await repo.fetchAllTests(status: status, skip: 0, limit: 20);
+      state = state.copyWith(
+        items: fetched,
+        isLoading: false,
+        hasMore: fetched.length == 20,
+        currentSkip: fetched.length,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, hasMore: false);
+    }
+  }
+
+  Future<void> refresh() async {
+    state = state.copyWith(isLoading: true, hasMore: true, currentSkip: 0);
+    final repo = ref.read(testsRepositoryProvider);
+    try {
+      final fetched = await repo.fetchAllTests(status: status, skip: 0, limit: 20);
+      state = state.copyWith(
+        items: fetched,
+        isLoading: false,
+        hasMore: fetched.length == 20,
+        currentSkip: fetched.length,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, hasMore: false);
+    }
+  }
+
+  Future<void> fetchNextPage() async {
+    if (state.isLoading || !state.hasMore) return;
+
+    state = state.copyWith(isLoading: true);
+    final repo = ref.read(testsRepositoryProvider);
+    try {
+      final fetched = await repo.fetchAllTests(status: status, skip: state.currentSkip, limit: 20);
+      state = state.copyWith(
+        items: [...state.items, ...fetched],
+        isLoading: false,
+        hasMore: fetched.length == 20,
+        currentSkip: state.currentSkip + fetched.length,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+}
+
+final availableTestsProvider = NotifierProvider<PaginatedTestsNotifier, PaginatedTestsState>(() {
+  return PaginatedTestsNotifier('available');
+});
+
+final attemptedTestsProvider = NotifierProvider<PaginatedTestsNotifier, PaginatedTestsState>(() {
+  return PaginatedTestsNotifier('attempted');
 });

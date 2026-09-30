@@ -271,9 +271,29 @@ def update_job(job_id: str, job_update: schemas.JobBase, db: Session = Depends(g
     return db_job
 
 # Tests CRUD
+from typing import Optional
+
 @app.get("/api/tests", response_model=list[schemas.TestModel])
-def get_tests(db: Session = Depends(get_db)):
-    return db.query(models.Test).filter(models.Test.is_active == True).all()
+def get_tests(
+    status: Optional[str] = "all", 
+    skip: int = 0, 
+    limit: int = 20, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    query = db.query(models.Test).filter(models.Test.is_active == True)
+    
+    if status != "all":
+        attempted_test_ids = db.query(models.TestAttempt.test_id).filter(
+            models.TestAttempt.user_id == current_user.id
+        ).subquery()
+        
+        if status == "available":
+            query = query.filter(~models.Test.id.in_(attempted_test_ids))
+        elif status == "attempted":
+            query = query.filter(models.Test.id.in_(attempted_test_ids))
+            
+    return query.order_by(models.Test.created_datetime.desc()).offset(skip).limit(limit).all()
 
 @app.post("/api/tests", response_model=schemas.TestModel)
 def create_test(test: schemas.TestBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -467,6 +487,16 @@ def update_professional(professional_id: str, professional_update: schemas.Profe
 def get_professional_reviews(professional_id: str, db: Session = Depends(get_db)):
     return db.query(models.ProfessionalReview).filter(models.ProfessionalReview.professional_id == professional_id, models.ProfessionalReview.is_active == True).all()
 
+@app.get("/api/users/me/professionals/{professional_id}/review")
+def get_my_professional_review(professional_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    existing = db.query(models.ProfessionalReview).filter(
+        models.ProfessionalReview.professional_id == professional_id, 
+        models.ProfessionalReview.user_id == current_user.id
+    ).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Review not found")
+    return existing
+
 @app.post("/api/users/me/professionals/{professional_id}/review", response_model=schemas.ProfessionalReview)
 def submit_professional_review(professional_id: str, review: schemas.ProfessionalReviewCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     existing = db.query(models.ProfessionalReview).filter(models.ProfessionalReview.professional_id == professional_id, models.ProfessionalReview.user_id == current_user.id).first()
@@ -626,6 +656,10 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
         current_user.city = user_update.city
     if user_update.goal is not None:
         current_user.goal = user_update.goal
+    if user_update.full_name is not None:
+        current_user.full_name = user_update.full_name
+    if user_update.email is not None:
+        current_user.email = user_update.email
     if user_update.resume_data is not None:
         current_user.resume_data = user_update.resume_data
     
@@ -636,8 +670,26 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
 
 # --- User Appointments ---
 @app.get("/api/users/me/appointments", response_model=list[schemas.ProfessionalAppointment])
-def get_my_appointments(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == current_user.id).order_by(models.ProfessionalAppointment.appointment_date.desc()).all()
+def get_my_appointments(skip: int = 0, limit: int = 50, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    appointments = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == current_user.id).order_by(models.ProfessionalAppointment.appointment_date.desc()).offset(skip).limit(limit).all()
+    for appt in appointments:
+        if appt.professional:
+            reviews_query = db.query(models.ProfessionalReview).filter(
+                models.ProfessionalReview.professional_id == appt.professional.id,
+                models.ProfessionalReview.is_active == True
+            )
+            count = reviews_query.count()
+            if count > 0:
+                avg = db.query(func.avg(models.ProfessionalReview.rating)).filter(
+                    models.ProfessionalReview.professional_id == appt.professional.id,
+                    models.ProfessionalReview.is_active == True
+                ).scalar()
+                appt.professional.reviews = count
+                appt.professional.rating = float(avg)
+            else:
+                appt.professional.reviews = 0
+                appt.professional.rating = appt.professional.default_rating
+    return appointments
 
 @app.post("/api/users/me/appointments", response_model=schemas.ProfessionalAppointment)
 def create_appointment(app_req: schemas.ProfessionalAppointmentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):

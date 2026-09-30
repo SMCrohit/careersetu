@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_toast.dart';
 import '../../domain/professional_model.dart';
+import '../../data/professionals_repository.dart';
 import '../../../appointments/presentation/providers/appointments_provider.dart';
 import '../widgets/reviews_bottom_sheet.dart';
 import 'dart:convert';
@@ -50,6 +51,83 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
   @override
   Widget build(BuildContext context) {
     final doc = widget.professional;
+
+    final String? ctx = widget.bookingContext;
+    final bool isUpcoming = ctx == 'CONFIRMED' || ctx == 'PENDING APPROVAL' || ctx == 'upcoming';
+    final bool isPast = ctx == 'ATTENDED' || ctx == 'MISSED' || ctx == 'CANCELLED' || ctx == 'EXPIRED' || ctx == 'past';
+
+    Widget bottomBarContent;
+
+    if (isUpcoming) {
+      bottomBarContent = Row(
+        children: [
+          Expanded(
+            child: PrimaryButton(
+              text: 'Already booked',
+              backgroundColor: Colors.grey.shade400,
+              onPressed: null,
+            ),
+          ),
+        ],
+      );
+    } else if (isPast) {
+      bottomBarContent = Row(
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Status', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+              Text(ctx ?? 'PAST', style: const TextStyle(color: AppColors.primaryText, fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => _showWriteReviewBottomSheet(context, ref, doc),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primaryBrand,
+                side: const BorderSide(color: AppColors.primaryBrand),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Write a Review', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      );
+    } else {
+      bottomBarContent = Row(
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Consultation Fee', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+              Text('₹${doc.consultationFee}', style: const TextStyle(color: AppColors.primaryText, fontSize: 20, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(width: 24),
+          Expanded(
+            child: PrimaryButton(
+              text: 'Book Appointment',
+              onPressed: selectedTime == null
+                  ? () {
+                      CustomToast.showError(context, 'Please select a time slot first');
+                    }
+                  : () {
+                      final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
+                          ? 'Today' 
+                          : DateFormat('MMM d, yyyy').format(selectedDate);
+                      ref.read(appointmentsProvider.notifier).bookAppointment(doc, bookingDate, selectedTime!);
+                      CustomToast.showSuccess(context, 'Appointment booked successfully!');
+                      Navigator.pop(context); // Go back to directory
+                    },
+            ),
+          ),
+        ],
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -262,7 +340,7 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
           ],
         ),
       ),
-      bottomNavigationBar: widget.bookingContext == 'past' ? null : Container(
+      bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: AppColors.white,
           border: Border(top: BorderSide(color: AppColors.border)),
@@ -270,43 +348,7 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Consultation Fee', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-                  Text('₹${doc.consultationFee}', style: const TextStyle(color: AppColors.primaryText, fontSize: 20, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: widget.bookingContext == 'upcoming'
-                    ? PrimaryButton(
-                        text: 'Already booked',
-                        backgroundColor: Colors.grey.shade400,
-                        onPressed: null,
-                      )
-                    : PrimaryButton(
-                        text: widget.bookingContext == 'past' ? 'Book Appointment Again' : 'Book Appointment',
-                        onPressed: selectedTime == null
-                            ? () {
-                                CustomToast.showError(context, 'Please select a time slot first');
-                              }
-                            : () {
-                                // Book appointment
-                                final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
-                                    ? 'Today' 
-                                    : DateFormat('MMM d, yyyy').format(selectedDate);
-                                ref.read(appointmentsProvider.notifier).bookAppointment(doc, bookingDate, selectedTime!);
-                                CustomToast.showSuccess(context, 'Appointment booked successfully!');
-                                Navigator.pop(context); // Go back to directory
-                              },
-                      ),
-              ),
-            ],
-          ),
+            child: bottomBarContent,
           ),
         ),
       ),
@@ -334,5 +376,153 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
       return Image.network(imageUrl, fit: BoxFit.cover, width: 100, height: 100,
           errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 50, color: AppColors.secondaryText));
     }
+  }
+
+  String _getRatingText(double r) {
+    if (r == 1.0) return 'Not good';
+    if (r == 2.0) return 'Fair';
+    if (r == 3.0) return 'Good';
+    if (r == 4.0) return 'Very good';
+    if (r == 5.0) return 'Best';
+    return '';
+  }
+
+  void _showWriteReviewBottomSheet(BuildContext context, WidgetRef ref, Professional professional) {
+    double rating = 0.0;
+    String comment = '';
+    bool isLoading = true;
+    bool hasFetched = false;
+    bool hasExistingReview = false;
+    TextEditingController commentController = TextEditingController();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            
+            if (!hasFetched) {
+              hasFetched = true;
+              ref.read(professionalsRepositoryProvider).getMyReview(professional.id).then((review) {
+                if (mounted) {
+                  setState(() {
+                    if (review != null) {
+                      rating = review.rating;
+                      comment = review.comment ?? '';
+                      commentController.text = comment;
+                      hasExistingReview = true;
+                    }
+                    isLoading = false;
+                  });
+                }
+              }).catchError((_) {
+                if (mounted) setState(() { isLoading = false; });
+              });
+            }
+
+            if (isLoading) {
+              return Padding(
+                padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    SizedBox(height: 150),
+                    Center(child: CircularProgressIndicator()),
+                    SizedBox(height: 150),
+                  ],
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(hasExistingReview ? 'Update Review' : 'Write a Review', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('How was your appointment with ${professional.name}?', style: const TextStyle(color: AppColors.secondaryText)),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(5, (index) {
+                        return IconButton(
+                          icon: Icon(
+                            index < rating ? Icons.star_rounded : Icons.star_outline_rounded,
+                            color: Colors.amber,
+                            size: 40,
+                          ),
+                          onPressed: () => setState(() => rating = index + 1.0),
+                        );
+                      }),
+                    ),
+                  ),
+                  if (rating > 0)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(_getRatingText(rating), style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBrand, fontSize: 16)),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: commentController,
+                    decoration: InputDecoration(
+                      hintText: 'Add a comment',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.all(16),
+                    ),
+                    maxLines: 3,
+                    onChanged: (val) => comment = val,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBrand,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        if (rating == 0.0) {
+                          CustomToast.showError(context, 'Please provide a star rating');
+                          return;
+                        }
+                        if (comment.trim().isEmpty) {
+                          CustomToast.showError(context, 'Please write a review comment');
+                          return;
+                        }
+                        
+                        try {
+                          final repo = ref.read(professionalsRepositoryProvider);
+                          await repo.submitReview(professional.id, rating, comment);
+                          Navigator.pop(context);
+                          CustomToast.showSuccess(context, hasExistingReview ? 'Review updated successfully' : 'Review submitted successfully');
+                        } catch (e) {
+                          CustomToast.showError(context, 'Failed to submit review');
+                        }
+                      },
+                      child: Text(hasExistingReview ? 'Update Review' : 'Submit Review', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          }
+        );
+      },
+    );
   }
 }

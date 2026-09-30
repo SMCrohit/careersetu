@@ -66,15 +66,23 @@ class AppointmentsScreen extends ConsumerWidget {
       onRefresh: () async {
         await ref.refresh(appointmentsProvider.future);
       },
-      child: appointments.isEmpty
-          ? SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-              child: Container(
-                height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
-                alignment: Alignment.center,
-                child: Text(emptyMessage, style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
-              ),
-            )
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (ScrollNotification scrollInfo) {
+          if (!ref.read(appointmentsProvider.notifier).isLoadingMore &&
+              scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+            ref.read(appointmentsProvider.notifier).loadMore();
+          }
+          return false;
+        },
+        child: appointments.isEmpty
+            ? SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                child: Container(
+                  height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
+                  alignment: Alignment.center,
+                  child: Text(emptyMessage, style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
+                ),
+              )
           : ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
               padding: const EdgeInsets.all(16),
@@ -95,7 +103,7 @@ class AppointmentsScreen extends ConsumerWidget {
                 context,
                 MaterialPageRoute(builder: (context) => ProfessionalDetailsScreen(
                   professional: doc,
-                  bookingContext: ['upcoming', 'pending', 'sent_to_doctor'].contains(appt.status) ? 'upcoming' : 'past',
+                  bookingContext: _getStatusText(appt.status, isPast),
                 )),
               );
             },
@@ -153,28 +161,13 @@ class AppointmentsScreen extends ConsumerWidget {
                       const Icon(Icons.chevron_right, color: AppColors.secondaryText),
                     ],
                   ),
-                  if (isPast && _getStatusText(appt.status, isPast) == 'ATTENDED') ...[
-                    const Divider(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: () => _showWriteReviewBottomSheet(context, ref, doc),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primaryBrand,
-                          side: const BorderSide(color: AppColors.primaryBrand),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Write a Review', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
         );
       },
+    ),
     ),
   );
 }

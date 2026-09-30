@@ -23,6 +23,8 @@ class UserBase(BaseModel):
 class UserProfileUpdate(BaseModel):
     profile_image_url: Optional[str] = None
     mobile_number: Optional[str] = None
+    full_name: Optional[str] = None
+    email: Optional[str] = None
     city: Optional[str] = None
     goal: Optional[str] = None
     resume_data: Optional[Any] = None
