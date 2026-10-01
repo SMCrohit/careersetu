@@ -68,7 +68,11 @@ class _OffersHubScreenState extends ConsumerState<OffersHubScreen> {
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(offerCitiesProvider);
-          await ref.refresh(offersProvider.future);
+          try {
+            await ref.refresh(offersProvider.future);
+          } catch (e) {
+            // Error is handled by the provider state
+          }
         },
         child: CustomScrollView(
           controller: _scrollController,

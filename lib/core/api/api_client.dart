@@ -18,12 +18,16 @@ class ApiException implements Exception {
 class ApiClient {
   late final Dio _dio;
 
+  static String get baseUrl {
+    return kReleaseMode 
+        ? 'https://careersetu-smc.vercel.app/api' 
+        : (dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.5:8000/api');
+  }
+
   ApiClient() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: kReleaseMode 
-            ? 'https://careersetu-smc.vercel.app/api' 
-            : (dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:8000/api'),
+        baseUrl: baseUrl,
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 15),
         headers: {

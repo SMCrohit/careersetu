@@ -588,6 +588,12 @@ def get_offer_cities(db: Session = Depends(get_db)):
 @app.get("/api/offers", response_model=list[schemas.Offer])
 def get_offers(city: Optional[str] = None, category: Optional[str] = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(auth.get_current_user_optional)):
     query = db.query(models.Offer).filter(models.Offer.is_active == True)
+    
+    # Filter out expired offers (where valid_until is past)
+    query = query.filter(
+        (models.Offer.valid_until == None) | (models.Offer.valid_until >= datetime.utcnow())
+    )
+
     if current_user:
         # Exclude offers already claimed by this user
         claimed_subquery = db.query(models.ClaimedOffer.offer_id).filter(models.ClaimedOffer.user_id == current_user.id)

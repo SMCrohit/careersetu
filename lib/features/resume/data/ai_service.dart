@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
+import '../../../../core/api/api_client.dart';
 
 class AIService {
   Future<Map<String, dynamic>> processResumeStep(String userInput, String currentStep, Map<String, dynamic> currentResumeData) async {
-    final baseUrl = dotenv.env['API_BASE_URL'];
-    if (baseUrl == null || baseUrl.isEmpty) {
-      throw Exception('API_BASE_URL not found in .env file.');
+    final baseUrl = ApiClient.baseUrl;
+    
+    if (baseUrl.isEmpty) {
+      throw Exception('Base URL is empty.');
     }
 
     final endpoint = '$baseUrl/resume/process-step';
