@@ -35,8 +35,8 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
   @override
   Widget build(BuildContext context) {
     final jobsAsyncValue = ref.watch(jobsProvider);
-
     final filters = ref.watch(jobFiltersProvider);
+    final appliedJobsState = ref.watch(appliedJobsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -170,7 +170,20 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
                                     Row(
                                       children: [
                                         Flexible(child: Text(job.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryBrand))),
-                                        if (job.createdDatetime != null && DateTime.now().difference(job.createdDatetime!).inDays <= 7)
+                                        if (appliedJobsState.value?.any((j) => j.id == job.id) ?? false)
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 8),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.success,
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            child: const Text(
+                                              'Applied',
+                                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                            ),
+                                          )
+                                        else if (job.createdDatetime != null && DateTime.now().difference(job.createdDatetime!).inDays <= 7)
                                           Container(
                                             margin: const EdgeInsets.only(left: 8),
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -187,9 +200,31 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(job.company, style: const TextStyle(fontSize: 14, color: AppColors.primaryText)),
-                                    Text(job.location, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
-                                    const SizedBox(height: 4),
-                                    Text('${job.salary} • ${job.type}', style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.location_on, size: 12, color: AppColors.secondaryText),
+                                        const SizedBox(width: 4),
+                                        Text(job.location, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      children: [
+                                        if (job.profession.isNotEmpty)
+                                          _buildSmallTag(Icons.work, job.profession),
+                                        if (job.experience.isNotEmpty)
+                                          _buildSmallTag(Icons.timeline, job.experience),
+                                        if (job.level.isNotEmpty)
+                                          _buildSmallTag(Icons.bar_chart, job.level),
+                                        if (job.type.isNotEmpty)
+                                          _buildSmallTag(Icons.schedule, job.type),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(job.salary, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBrand)),
                                   ],
                                 ),
                               )
@@ -214,6 +249,7 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => JobFilterBottomSheet(
         initialFilters: currentFilters,
@@ -240,6 +276,24 @@ class _JobListingsScreenState extends ConsumerState<JobListingsScreen> {
             onTap: onRemove,
             child: const Icon(Icons.close, size: 14, color: AppColors.white),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmallTag(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.primaryBrand),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(fontSize: 10, color: AppColors.primaryText, fontWeight: FontWeight.w500)),
         ],
       ),
     );

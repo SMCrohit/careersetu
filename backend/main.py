@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from typing import Optional
 import io
 import re
 import uuid
@@ -235,6 +236,26 @@ def delete_banner(banner_id: str, db: Session = Depends(get_db), admin: str = De
 @app.get("/api/jobs", response_model=list[schemas.Job])
 def get_jobs(db: Session = Depends(get_db)):
     return db.query(models.Job).filter(models.Job.is_active == True).all()
+
+@app.get("/api/jobs/locations", response_model=list[str])
+def get_job_locations(db: Session = Depends(get_db)):
+    locations = db.query(models.Job.location).filter(
+        models.Job.is_active == True,
+        models.Job.location != None,
+        models.Job.location != ""
+    ).distinct().all()
+    # Extract strings and trim whitespace
+    return sorted(list(set([loc[0].strip() for loc in locations if loc[0].strip()])))
+
+@app.get("/api/jobs/professions", response_model=list[str])
+def get_job_professions(db: Session = Depends(get_db)):
+    professions = db.query(models.Job.profession).filter(
+        models.Job.is_active == True,
+        models.Job.profession != None,
+        models.Job.profession != ""
+    ).distinct().all()
+    # Extract strings and trim whitespace
+    return sorted(list(set([prof[0].strip() for prof in professions if prof[0].strip()])))
 
 @app.post("/api/jobs", response_model=schemas.Job)
 def create_job(job: schemas.JobBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -557,9 +578,49 @@ def admin_delete_professional_review(review_id: str, db: Session = Depends(get_d
     return {"status": "Review soft deleted"}
 
 # Offers CRUD
+@app.get("/api/offers/cities", response_model=list[str])
+def get_offer_cities(db: Session = Depends(get_db)):
+    cities = db.query(models.Offer.city)\
+        .filter(models.Offer.is_active == True, models.Offer.city.isnot(None), models.Offer.city != '')\
+        .distinct()\
+        .all()
+    return [city[0] for city in cities if city[0]]
 @app.get("/api/offers", response_model=list[schemas.Offer])
-def get_offers(db: Session = Depends(get_db)):
-    return db.query(models.Offer).filter(models.Offer.is_active == True).all()
+def get_offers(city: Optional[str] = None, category: Optional[str] = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(auth.get_current_user_optional)):
+    query = db.query(models.Offer).filter(models.Offer.is_active == True)
+    if current_user:
+        # Exclude offers already claimed by this user
+        claimed_subquery = db.query(models.ClaimedOffer.offer_id).filter(models.ClaimedOffer.user_id == current_user.id)
+        query = query.filter(models.Offer.id.notin_(claimed_subquery))
+    if city:
+        query = query.filter(func.lower(models.Offer.city) == func.lower(city))
+    if category:
+        query = query.filter(func.lower(models.Offer.type) == func.lower(category))
+    return query.offset(skip).limit(limit).all()
+
+@app.post("/api/offers/{offer_id}/claim")
+def claim_offer(offer_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    offer = db.query(models.Offer).filter(models.Offer.id == offer_id, models.Offer.is_active == True).first()
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found or inactive")
+        
+    already_claimed = db.query(models.ClaimedOffer).filter(
+        models.ClaimedOffer.user_id == current_user.id,
+        models.ClaimedOffer.offer_id == offer.id
+    ).first()
+    
+    if already_claimed:
+        raise HTTPException(status_code=400, detail="Offer already claimed")
+        
+    claimed_offer = models.ClaimedOffer(user_id=current_user.id, offer_id=offer.id)
+    db.add(claimed_offer)
+    db.commit()
+    db.refresh(claimed_offer)
+    return {"message": "Offer claimed successfully", "discount_code": offer.discount_code}
+
+@app.get("/api/users/me/claimed-offers", response_model=list[schemas.ClaimedOfferResponse])
+def get_claimed_offers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.ClaimedOffer).filter(models.ClaimedOffer.user_id == current_user.id).offset(skip).limit(limit).all()
 
 @app.post("/api/offers", response_model=schemas.Offer)
 def create_offer(offer: schemas.OfferBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -593,6 +654,10 @@ def update_offer(offer_id: str, offer_update: schemas.OfferBase, db: Session = D
     db.refresh(db_offer)
     auth.log_admin_action(db, admin, "UPDATE", "Offers", offer_id)
     return db_offer
+
+@app.get("/api/admin/claimed-offers", response_model=list[schemas.ClaimedOfferResponse])
+def get_admin_claimed_offers(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    return db.query(models.ClaimedOffer).all()
 
 # Users
 @app.get("/api/users", response_model=list[schemas.User])
@@ -892,3 +957,75 @@ def admin_get_all_test_attempts(db: Session = Depends(get_db), admin: str = Depe
         })
     return result
 
+
+import httpx
+import json
+
+@app.post("/api/resume/process-step")
+async def process_resume_step(req: schemas.ResumeStepRequest):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured on server.")
+
+    system_prompt = f"""
+You are an expert professional resume writer interviewing a user.
+The current section you are gathering information for is: {req.current_step}.
+The user's current resume data is: {json.dumps(req.current_resume_data)}.
+
+Evaluate the user's latest input: "{req.user_input}"
+
+1. If the input is too brief, vague, or invalid (e.g. they say "hi", "yes", or give a 1-word answer for work history), ask a polite follow-up question to get more details for the {req.current_step}. DO NOT extract data, and keep next_step as "{req.current_step}".
+2. If the input provides good information for the {req.current_step}, extract and professionalize it into "extracted_data". Then, decide what the next step should be (e.g. summary -> experience -> education -> skills -> complete). Formulate a "reply" asking them for information about the "next_step".
+
+For "extracted_data", YOU MUST strictly follow this JSON schema depending on the current section:
+- If section is "summary": Return a single string.
+- If section is "experience": Return a LIST OF OBJECTS, where each object has: "title" (string), "company" (string), "date" (string), "bullets" (list of strings).
+- If section is "education": Return a LIST OF OBJECTS, where each object has: "degree" (string), "date" (string), "school" (string).
+- If section is "skills": Return a single string with skills separated by commas or newlines.
+
+Return your response ONLY as a JSON object with:
+- "is_sufficient": boolean (true if you got enough info to move to the next section, false if you need to ask more about the current section)
+- "reply": Your conversational response to the user.
+- "extracted_data": (Optional) The professionalized data matching the schema above. Only provide this if is_sufficient is true.
+- "next_step": The string key of the next section to move to ("summary", "experience", "education", "skills", "complete"). If is_sufficient is false, next_step MUST be "{req.current_step}".
+
+Do not wrap the JSON in Markdown code blocks like ```json, just return the raw JSON object.
+"""
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": req.user_input}
+                    ],
+                    "temperature": 0.7
+                },
+                timeout=30.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"].strip()
+
+            if content.startswith("```"):
+                first_newline = content.find("\n")
+                if first_newline != -1:
+                    content = content[first_newline + 1:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+
+            return json.loads(content)
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"OpenAI error: {e.response.text}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error communicating with AI: {str(e)}")

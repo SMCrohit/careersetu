@@ -79,11 +79,20 @@ class JobDetailsScreen extends ConsumerWidget {
                       Text('${job.postedTime} • ${job.applicants}', style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
                       
                       const SizedBox(height: 16),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          _buildTag(Icons.work, job.type),
-                          const SizedBox(width: 8),
-                          _buildTag(null, job.level),
+                          if (job.profession.isNotEmpty)
+                            _buildTag(Icons.work, job.profession),
+                          if (job.experience.isNotEmpty)
+                            _buildTag(Icons.timeline, job.experience),
+                          if (job.level.isNotEmpty)
+                            _buildTag(Icons.bar_chart, job.level),
+                          if (job.type.isNotEmpty)
+                            _buildTag(Icons.schedule, job.type),
+                          if (job.salary.isNotEmpty)
+                            _buildTag(Icons.attach_money, job.salary),
                         ],
                       )
                     ],

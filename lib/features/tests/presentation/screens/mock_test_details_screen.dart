@@ -343,9 +343,14 @@ class _TestCard extends ConsumerWidget {
           const SizedBox(height: 16),
           PrimaryButton(
             text: isCompleted ? 'Retest (Practice Only)' : 'Start Test',
-            onPressed: () {
+            onPressed: () async {
               ref.read(activeTestProvider.notifier).loadTest(test.id);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveTestScreen()));
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveTestScreen()));
+              
+              if (!isCompleted) {
+                ref.read(availableTestsProvider.notifier).refresh();
+                ref.read(attemptedTestsProvider.notifier).refresh();
+              }
             },
           )
         ],

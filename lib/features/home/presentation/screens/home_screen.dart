@@ -16,7 +16,9 @@ import '../../../offers/presentation/screens/offers_hub_screen.dart';
 import '../../../professionals/presentation/providers/professionals_provider.dart';
 import '../providers/banners_provider.dart';
 import 'dart:convert';
-
+import 'package:showcaseview/showcaseview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'showcase_keys.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -27,6 +29,31 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final Color bgColor = const Color(0xFFF0EBE1);
   bool _hideProfileBanner = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      final hasSeenShowcase = prefs.getBool('has_seen_showcase') ?? false;
+      if (!hasSeenShowcase && mounted) {
+        ShowCaseWidget.of(context).startShowCase([
+          ShowcaseKeys.profile,
+          ShowcaseKeys.notifications,
+          ShowcaseKeys.jobs,
+          ShowcaseKeys.appointments,
+          ShowcaseKeys.tests,
+          ShowcaseKeys.bookProfessional,
+          ShowcaseKeys.localOffers,
+          ShowcaseKeys.tabJobs,
+          ShowcaseKeys.tabTests,
+          ShowcaseKeys.tabResume,
+          ShowcaseKeys.tabGames,
+        ]);
+        prefs.setBool('has_seen_showcase', true);
+      }
+    });
+  }
 
   Future<void> _launchUrl(String urlString) async {
     final Uri url = Uri.parse(urlString);
@@ -51,8 +78,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         elevation: 0,
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
-          child: GestureDetector(
-            onTap: () => Navigator.pushNamed(context, '/profile'),
+          child: Showcase(
+            key: ShowcaseKeys.profile,
+            description: 'Tap here to complete or edit your profile.',
+            child: GestureDetector(
+              onTap: () => Navigator.pushNamed(context, '/profile'),
             child: Container(
               width: 40,
               height: 40,
@@ -85,6 +115,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ],
               ),
             ),
+            ),
           ),
         ),
         title: Text(
@@ -92,9 +123,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           style: const TextStyle(color: AppColors.primaryText, fontSize: 16, fontWeight: FontWeight.w600),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none, color: AppColors.primaryText),
-            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+          if (user != null && user.profileCompletionPercentage < 1.0 && _hideProfileBanner)
+            GestureDetector(
+              onTap: () => Navigator.pushNamed(context, '/profile'),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          value: user.profileCompletionPercentage,
+                          backgroundColor: Colors.grey.shade300,
+                          color: AppColors.primaryBrand,
+                          strokeWidth: 3,
+                        ),
+                        Text(
+                          '${(user.profileCompletionPercentage * 100).toInt()}%',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primaryBrand),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Showcase(
+            key: ShowcaseKeys.notifications,
+            description: 'Check here for important alerts and updates.',
+            child: IconButton(
+              icon: const Icon(Icons.notifications_none, color: AppColors.primaryText),
+              onPressed: () => Navigator.pushNamed(context, '/notifications'),
+            ),
           )
         ],
       ),
@@ -231,18 +294,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     mainAxisSpacing: 8,
                     childAspectRatio: 0.8,
                     children: [
-                      _buildGridSmallCard(context, 'My\nJobs', Icons.work_history_outlined, () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const AppliedJobsScreen()));
-                      }),
-                      _buildGridSmallCard(context, 'My\nAppts', Icons.calendar_today_outlined, () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const AppointmentsScreen()));
-                      }),
-                      _buildGridSmallCard(context, 'Local\nOffers', Icons.local_offer_outlined, () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersHubScreen()));
-                      }),
-                      _buildGridSmallCard(context, 'My\nTest', Icons.fact_check_outlined, () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTestsScreen()));
-                      }),
+                      Showcase(
+                        key: ShowcaseKeys.jobs,
+                        description: 'Track your applied jobs and see their status.',
+                        child: _buildGridSmallCard(context, 'My\nJobs', Icons.work_history_outlined, () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const AppliedJobsScreen()));
+                        }),
+                      ),
+                      Showcase(
+                        key: ShowcaseKeys.appointments,
+                        description: 'Manage your upcoming consultations here.',
+                        child: _buildGridSmallCard(context, 'My\nAppts', Icons.calendar_today_outlined, () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const AppointmentsScreen()));
+                        }),
+                      ),
+                      Showcase(
+                        key: ShowcaseKeys.localOffers,
+                        description: 'Find exclusive local offers and discounts here.',
+                        child: _buildGridSmallCard(context, 'Local\nOffers', Icons.local_offer_outlined, () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersHubScreen()));
+                        }),
+                      ),
+                      Showcase(
+                        key: ShowcaseKeys.tests,
+                        description: 'Review the results of tests you have taken.',
+                        child: _buildGridSmallCard(context, 'My\nTest', Icons.fact_check_outlined, () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTestsScreen()));
+                        }),
+                      ),
                     ],
                   ),
                 ],
@@ -421,9 +500,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ],
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Text('Book CAs, Lawyers, Developers, etc.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+                    Showcase(
+                      key: ShowcaseKeys.bookProfessional,
+                      description: 'Tap on a professional below to view their profile, check their reviews, and book an appointment.',
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Text('Book CAs, Lawyers, Developers, etc.', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     SizedBox(

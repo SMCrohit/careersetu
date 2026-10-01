@@ -84,6 +84,17 @@ class Offer(BaseModel):
     description = Column(Text)
     action = Column(String)
     type = Column(String)
+    city = Column(String, nullable=True, index=True)
+    discount_code = Column(String, nullable=True)
+    valid_until = Column(DateTime, nullable=True)
+
+class ClaimedOffer(BaseModel):
+    __tablename__ = "claimed_offers"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id"))
+    
+    user = relationship("User")
+    offer = relationship("Offer")
 
 class Notification(BaseModel):
     __tablename__ = "notifications"

@@ -112,9 +112,20 @@ class OfferBase(BaseModel):
     description: str
     action: str
     type: str
+    city: Optional[str] = None
+    discount_code: Optional[str] = None
+    valid_until: Optional[datetime] = None
 
 class Offer(OfferBase, ORMBase):
     pass
+
+class ClaimedOfferBase(BaseModel):
+    user_id: UUID
+    offer_id: UUID
+
+class ClaimedOfferResponse(ClaimedOfferBase, ORMBase):
+    offer: Optional[Offer] = None
+    user: Optional[UserBase] = None
 
 class NotificationBase(BaseModel):
     title: str
@@ -210,3 +221,8 @@ class BannerCreate(BannerBase):
 
 class Banner(BannerBase, ORMBase):
     pass
+
+class ResumeStepRequest(BaseModel):
+    user_input: str
+    current_step: str
+    current_resume_data: dict

@@ -45,8 +45,22 @@ class JobsRepository {
         allJobs = allJobs.where((job) => job.location.toLowerCase().contains(locQuery)).toList();
       }
       if (filters.salary != null && filters.salary!.isNotEmpty) {
-        final salQuery = filters.salary!.toLowerCase();
-        allJobs = allJobs.where((job) => job.salary.toLowerCase().contains(salQuery)).toList();
+        final parts = filters.salary!.split('-');
+        if (parts.length == 2) {
+          final filterMin = double.tryParse(parts[0]) ?? 0;
+          final filterMax = double.tryParse(parts[1]) ?? 5000000;
+          
+          allJobs = allJobs.where((job) {
+             final jobParts = job.salary.replaceAll(RegExp(r'[^0-9-]'), '').split('-');
+             double jobMin = 0;
+             double jobMax = 0;
+             if (jobParts.isNotEmpty && jobParts[0].isNotEmpty) {
+               jobMin = double.tryParse(jobParts[0]) ?? 0;
+               jobMax = jobParts.length > 1 && jobParts[1].isNotEmpty ? (double.tryParse(jobParts[1]) ?? jobMin) : jobMin;
+             }
+             return jobMin <= filterMax && jobMax >= filterMin;
+          }).toList();
+        }
       }
     }
     
@@ -61,6 +75,18 @@ class JobsRepository {
         : (startIndex + limit);
         
     return allJobs.sublist(startIndex, endIndex);
+  }
+
+  Future<List<String>> fetchJobLocations() async {
+    final response = await _apiClient.get('/jobs/locations');
+    final List<dynamic> data = response.data;
+    return data.map((e) => e.toString()).toList();
+  }
+
+  Future<List<String>> fetchJobProfessions() async {
+    final response = await _apiClient.get('/jobs/professions');
+    final List<dynamic> data = response.data;
+    return data.map((e) => e.toString()).toList();
   }
 }
 

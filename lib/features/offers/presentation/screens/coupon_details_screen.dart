@@ -13,8 +13,11 @@ class CouponDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final claimedOffers = ref.watch(claimedOffersProvider);
-    final isClaimed = claimedOffers.contains(offer.id);
+    final claimedOffersState = ref.watch(claimedOffersListProvider);
+    bool isClaimed = false;
+    if (claimedOffersState is AsyncData) {
+      isClaimed = claimedOffersState.value!.any((c) => c.offerId == offer.id);
+    }
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -72,9 +75,17 @@ class CouponDetailsScreen extends ConsumerWidget {
                     text: isClaimed ? 'Claimed' : 'Apply Now',
                     onPressed: isClaimed 
                         ? null 
-                        : () {
-                            ref.read(claimedOffersProvider.notifier).claimOffer(offer.id);
-                            CustomToast.showSuccess(context, 'Successfully applied to ${offer.title}!');
+                        : () async {
+                            try {
+                              await ref.read(claimedOffersListProvider.notifier).claim(offer.id);
+                              if (context.mounted) {
+                                CustomToast.showSuccess(context, 'Successfully applied to ${offer.title}!');
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                CustomToast.showError(context, 'Failed to apply.');
+                              }
+                            }
                           },
                   )
                 ],

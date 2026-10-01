@@ -155,7 +155,7 @@ class ChatResumeNotifier extends Notifier<ChatResumeState> {
       
     } catch (e) {
       state = state.copyWith(isTyping: false);
-      _addMessage("Sorry, I encountered an error. Let's try that again.", false);
+      _addMessage("Sorry, I encountered an error: $e", false);
     }
   }
 }

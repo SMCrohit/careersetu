@@ -121,3 +121,11 @@ class AppliedJobsNotifier extends AsyncNotifier<List<JobModel>> {
 final appliedJobsProvider = AsyncNotifierProvider<AppliedJobsNotifier, List<JobModel>>(() {
   return AppliedJobsNotifier();
 });
+
+final jobLocationsProvider = FutureProvider.autoDispose<List<String>>((ref) async {
+  return ref.read(jobsRepositoryProvider).fetchJobLocations();
+});
+
+final jobProfessionsProvider = FutureProvider.autoDispose<List<String>>((ref) async {
+  return ref.read(jobsRepositoryProvider).fetchJobProfessions();
+});

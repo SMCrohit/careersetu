@@ -12,10 +12,14 @@ interface Offer {
   type: string;
   action: string;
   description: string;
+  city?: string;
+  discount_code?: string;
+  valid_until?: string;
 }
 
 const defaultFormData = {
-  title: '', subtitle: '', type: 'Education', action: 'Claim', description: ''
+  title: '', subtitle: '', type: 'Education', action: 'Claim', description: '',
+  city: '', discount_code: '', valid_until: ''
 };
 
 const Offers = () => {
@@ -63,7 +67,10 @@ const Offers = () => {
       subtitle: offer.subtitle,
       type: offer.type,
       action: offer.action,
-      description: offer.description || ''
+      description: offer.description || '',
+      city: offer.city || '',
+      discount_code: offer.discount_code || '',
+      valid_until: offer.valid_until ? new Date(offer.valid_until).toISOString().split('T')[0] : ''
     });
     setEditingId(offer.id);
     setIsModalOpen(true);
@@ -122,22 +129,24 @@ const Offers = () => {
                 <th className="p-4 font-medium">Title</th>
                 <th className="p-4 font-medium">Subtitle</th>
                 <th className="p-4 font-medium">Type</th>
-                <th className="p-4 font-medium">Call to Action</th>
+                <th className="p-4 font-medium">City</th>
+                <th className="p-4 font-medium">Code</th>
                 <th className="p-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="text-center p-8 text-secondaryText">Loading offers...</td></tr>
+                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">Loading offers...</td></tr>
               ) : offers.length === 0 ? (
-                <tr><td colSpan={5} className="text-center p-8 text-secondaryText">No offers found.</td></tr>
+                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">No offers found.</td></tr>
               ) : (
                 offers.map((offer) => (
                   <tr key={offer.id} className="border-b border-border hover:bg-gray-50/50 transition-colors">
                     <td className="p-4 font-medium text-primaryBrand">{offer.title}</td>
                     <td className="p-4 text-primaryText">{offer.subtitle}</td>
                     <td className="p-4"><span className="px-2.5 py-1 bg-highlight/10 text-highlight rounded-full text-xs font-medium">{offer.type}</span></td>
-                    <td className="p-4 text-secondaryText">{offer.action}</td>
+                    <td className="p-4 text-secondaryText">{offer.city || 'All'}</td>
+                    <td className="p-4 text-secondaryText font-mono">{offer.discount_code || 'N/A'}</td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-3">
                         <button onClick={() => openEditModal(offer)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
@@ -175,6 +184,20 @@ const Offers = () => {
             <div>
               <label className="block text-sm font-medium text-secondaryText mb-1">Call to Action text</label>
               <input required type="text" className="input-field" value={formData.action} onChange={e => setFormData({...formData, action: e.target.value})} placeholder="e.g. Apply, Claim" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-secondaryText mb-1">City (Optional)</label>
+              <input type="text" className="input-field" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} placeholder="e.g. Mumbai, Delhi (Leave blank for all)" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-secondaryText mb-1">Discount Code</label>
+              <input required type="text" className="input-field" value={formData.discount_code} onChange={e => setFormData({...formData, discount_code: e.target.value})} placeholder="e.g. SAVE50" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-secondaryText mb-1">Valid Until (Optional)</label>
+              <input type="date" className="input-field" value={formData.valid_until} onChange={e => setFormData({...formData, valid_until: e.target.value})} />
             </div>
           </div>
           <div>

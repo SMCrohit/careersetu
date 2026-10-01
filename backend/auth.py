@@ -3,7 +3,7 @@ from typing import Optional
 import os
 import jwt
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -57,6 +57,27 @@ async def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = D
         raise credentials_exception
         
     return admin_user.username
+
+from fastapi.security.utils import get_authorization_scheme_param
+
+async def get_current_user_optional(request: Request, db: Session = Depends(get_db)):
+    authorization: str = request.headers.get("Authorization")
+    if not authorization:
+        return None
+    scheme, token = get_authorization_scheme_param(authorization)
+    if not authorization or scheme.lower() != "bearer":
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        mobile_number: str = payload.get("sub")
+        role: str = payload.get("role")
+        if mobile_number is None or role != "user":
+            return None
+    except jwt.PyJWTError:
+        return None
+    
+    user = db.query(models.User).filter(models.User.mobile_number == mobile_number).first()
+    return user
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(

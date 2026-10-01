@@ -122,10 +122,44 @@ class _ResumePreviewScreenState extends ConsumerState<ResumePreviewScreen> {
                 ),
                 
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'Design ${ _selectedTemplateIndex + 1 } of 10: ${_designNames[_selectedTemplateIndex]}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primaryText),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_selectedTemplateIndex > 0)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_ios, size: 20, color: AppColors.primaryBrand),
+                          onPressed: () {
+                            _pageController.previousPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                        )
+                      else
+                        const SizedBox(width: 48), // Match IconButton width for centering
+
+                      Expanded(
+                        child: Text(
+                          'Design ${_selectedTemplateIndex + 1} of 10: ${_designNames[_selectedTemplateIndex]}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primaryText),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+
+                      if (_selectedTemplateIndex < _designNames.length - 1)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_forward_ios, size: 20, color: AppColors.primaryBrand),
+                          onPressed: () {
+                            _pageController.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                        )
+                      else
+                        const SizedBox(width: 48), // Match IconButton width for centering
+                    ],
                   ),
                 ),
                 
