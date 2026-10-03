@@ -11,6 +11,12 @@ interface Question {
   text: string;
   options: string[];
   correct_answer: string;
+  section?: string;
+  topic?: string;
+  subtopic?: string;
+  time_limit_seconds?: number;
+  explanation?: string;
+  difficulty?: string;
 }
 
 const TestQuestions = () => {
@@ -100,9 +106,21 @@ const TestQuestions = () => {
       id: `q_${Date.now()}`,
       text: '',
       options: ['', '', '', ''],
-      correct_answer: ''
+      correct_answer: '',
+      section: '',
+      topic: '',
+      subtopic: '',
+      time_limit_seconds: 0,
+      explanation: '',
+      difficulty: 'Medium'
     };
     setQuestions([...questions, newQuestion]);
+  };
+
+  const updateQuestionField = (qIndex: number, field: keyof Question, value: any) => {
+    const newQ = [...questions];
+    newQ[qIndex] = { ...newQ[qIndex], [field]: value };
+    setQuestions(newQ);
   };
 
   const updateQuestionText = (qIndex: number, text: string) => {
@@ -259,6 +277,41 @@ const TestQuestions = () => {
                     )}
                   </div>
                 ))}
+              </div>
+
+              {/* Advanced Settings */}
+              <div className="mt-6 pt-6 border-t border-border/50 space-y-4">
+                <h4 className="text-sm font-semibold text-secondaryText uppercase tracking-wider mb-2">Advanced Metadata</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-secondaryText mb-1">Section</label>
+                    <input type="text" value={q.section || ''} onChange={(e) => updateQuestionField(qIndex, 'section', e.target.value)} placeholder="e.g. Aptitude" className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-secondaryText mb-1">Topic</label>
+                    <input type="text" value={q.topic || ''} onChange={(e) => updateQuestionField(qIndex, 'topic', e.target.value)} placeholder="e.g. Mathematics" className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-secondaryText mb-1">Subtopic</label>
+                    <input type="text" value={q.subtopic || ''} onChange={(e) => updateQuestionField(qIndex, 'subtopic', e.target.value)} placeholder="e.g. Algebra" className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-secondaryText mb-1">Time Limit (seconds)</label>
+                    <input type="number" min="0" value={q.time_limit_seconds || 0} onChange={(e) => updateQuestionField(qIndex, 'time_limit_seconds', parseInt(e.target.value) || 0)} className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-secondaryText mb-1">Difficulty</label>
+                    <select value={q.difficulty || 'Medium'} onChange={(e) => updateQuestionField(qIndex, 'difficulty', e.target.value)} className="input-field text-sm bg-white">
+                      <option>Easy</option>
+                      <option>Medium</option>
+                      <option>Hard</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-secondaryText mb-1">Explanation (Optional)</label>
+                  <textarea value={q.explanation || ''} onChange={(e) => updateQuestionField(qIndex, 'explanation', e.target.value)} placeholder="Explain the correct answer..." rows={2} className="input-field text-sm"></textarea>
+                </div>
               </div>
             </div>
           ))

@@ -19,11 +19,12 @@ interface TestModel {
   difficulty: string;
   duration_mins: number;
   provider_name: string;
+  test_mode?: string;
 }
 
 const defaultFormData = {
   title: '', tag: '', description: '', duration_mins: 60, 
-  difficulty: 'Medium', provider_name: 'CareerSetu', max_discount_percentage: 0, questions: []
+  difficulty: 'Medium', provider_name: 'CareerSetu', test_mode: 'overall', max_discount_percentage: 0, questions: []
 };
 
 const TAG_OPTIONS = [
@@ -218,6 +219,7 @@ const Tests = () => {
       duration_mins: test.duration_mins,
       difficulty: test.difficulty,
       provider_name: test.provider_name || 'CareerSetu',
+      test_mode: test.test_mode || 'overall',
       max_discount_percentage: 0,
       questions: []
     });
@@ -489,6 +491,14 @@ const Tests = () => {
                   })}
                 </div>
               )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-secondaryText mb-1">Test Mode</label>
+              <select className="input-field bg-white" value={formData.test_mode} onChange={e => setFormData({...formData, test_mode: e.target.value})}>
+                <option value="overall">Overall (Single Timer)</option>
+                <option value="sectional">Sectional (Multi-section)</option>
+                <option value="question">Question-Level (Per-question timer)</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-secondaryText mb-1">Difficulty</label>

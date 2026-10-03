@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Request
 from typing import Optional
 import io
 import re
@@ -308,15 +308,18 @@ from typing import Optional
 
 @app.get("/api/tests", response_model=list[schemas.TestModel])
 def get_tests(
+    request: Request,
     status: Optional[str] = "all", 
     skip: int = 0, 
     limit: int = 20, 
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
 ):
     query = db.query(models.Test).filter(models.Test.is_active == True)
     
     if status != "all":
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required to filter tests by status")
         attempted_test_ids = db.query(models.TestAttempt.test_id).filter(
             models.TestAttempt.user_id == current_user.id
         ).subquery()
@@ -1072,7 +1075,7 @@ def admin_get_all_test_attempts(db: Session = Depends(get_db), admin: str = Depe
         total_questions = len(test.questions) if test and test.questions else 0
         result.append({
             "id": str(att.id),
-            "score": att.score,
+            "score": att.total_score,
             "total_questions": total_questions,
             "attempted_at": att.created_datetime.isoformat() if att.created_datetime else None,
             "user": {"id": str(user.id), "full_name": user.full_name, "mobile_number": user.mobile_number, "city": user.city} if user else None,
