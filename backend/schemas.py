@@ -68,6 +68,7 @@ class TestBase(BaseModel):
     difficulty: str
     provider_name: str
     max_discount_percentage: int
+    test_mode: Optional[str] = "overall"
     questions: List[Any] = []
 
 class TestModel(TestBase, ORMBase):
@@ -161,13 +162,20 @@ class JobApplication(JobApplicationBase, ORMBase):
 class TestAttemptBase(BaseModel):
     user_id: UUID
     test_id: UUID
-    score: float
+    total_score: int
+    time_taken_seconds: int
+    question_responses: List[Any] = []
+    ai_report: Optional[dict] = None
 
 class TestAttemptCreate(BaseModel):
     test_id: UUID
-    score: float
+    total_score: int
+    time_taken_seconds: int
+    question_responses: List[Any] = []
+    ai_report: Optional[dict] = None
 
 class TestAttempt(TestAttemptBase, ORMBase):
+    completed_at: datetime
     test: Optional[TestModel] = None
 
 class ProfessionalAppointmentBase(BaseModel):
@@ -226,3 +234,21 @@ class ResumeStepRequest(BaseModel):
     user_input: str
     current_step: str
     current_resume_data: dict
+    chat_history: Optional[List[dict]] = []
+
+class ResumeSessionBase(BaseModel):
+    chat_history: List[dict] = []
+    extracted_data: dict = {}
+    uploaded_resume_info: Optional[dict] = None
+    status: str = "in_progress"
+    current_step: str = "summary"
+
+class ResumeSessionUpdate(BaseModel):
+    chat_history: Optional[List[dict]] = None
+    extracted_data: Optional[dict] = None
+    uploaded_resume_info: Optional[dict] = None
+    status: Optional[str] = None
+    current_step: Optional[str] = None
+
+class ResumeSessionOut(ResumeSessionBase, ORMBase):
+    user_id: UUID

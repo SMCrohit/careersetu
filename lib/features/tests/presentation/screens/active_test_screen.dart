@@ -29,8 +29,39 @@ class ActiveTestScreen extends ConsumerWidget {
     final minutesStr = (state.timeRemaining / 60).floor().toString().padLeft(2, '0');
     final secondsStr = (state.timeRemaining % 60).toString().padLeft(2, '0');
 
-    return Scaffold(
-      backgroundColor: AppColors.white,
+    return WillPopScope(
+      onWillPop: () async {
+        if (state.test?.testMode == 'overall' && state.currentQuestionIndex > 0) {
+          ref.read(activeTestProvider.notifier).previousQuestion();
+          return false;
+        }
+
+        final shouldClose = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Close Test?'),
+            content: const Text('Are you sure you want to close the test? Your progress will be lost.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Close Test', style: TextStyle(color: AppColors.error)),
+              ),
+            ],
+          ),
+        );
+        
+        if (shouldClose == true) {
+          ref.read(activeTestProvider.notifier).cancelTest();
+          return true;
+        }
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.white,
       appBar: AppBar(
         title: Text('Question ${state.currentQuestionIndex + 1}/${state.test!.questions.length}', style: const TextStyle(fontSize: 16)),
         backgroundColor: AppColors.white,
@@ -112,14 +143,14 @@ class ActiveTestScreen extends ConsumerWidget {
             color: AppColors.white,
             child: Row(
               children: [
-                if (state.currentQuestionIndex > 0)
+                if (state.currentQuestionIndex > 0 && state.test!.testMode != 'per_question')
                   Expanded(
                     child: SecondaryButton(
                       text: 'Previous',
                       onPressed: () => ref.read(activeTestProvider.notifier).previousQuestion(),
                     ),
                   ),
-                if (state.currentQuestionIndex > 0) const SizedBox(width: 16),
+                if (state.currentQuestionIndex > 0 && state.test!.testMode != 'per_question') const SizedBox(width: 16),
                 Expanded(
                   child: PrimaryButton(
                     text: state.currentQuestionIndex == state.test!.questions.length - 1 ? 'Submit' : 'Next',
@@ -137,6 +168,7 @@ class ActiveTestScreen extends ConsumerWidget {
           )
         ],
       ),
+    ),
     );
   }
 }

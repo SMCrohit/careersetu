@@ -62,15 +62,54 @@ class ChatResumeNotifier extends Notifier<ChatResumeState> {
     return hasContact && hasSummary && hasExp && hasEdu && hasSkills;
   }
 
-  void initializeChat(User? user) {
+  void initializeChat(User? user) async {
     if (user == null || state.messages.isNotEmpty) return;
 
-    if (user.resumeData != null && _isResumeStrong(user.resumeData!)) {
+    try {
+      final sessionData = await _aiService.getResumeSession();
+      final chatHistoryList = sessionData['chat_history'] as List? ?? [];
+      
+      if (chatHistoryList.isNotEmpty) {
+        final List<ChatMessage> loadedMessages = chatHistoryList.map((msg) {
+          return ChatMessage(
+            text: msg['content'] ?? '',
+            isUser: msg['role'] == 'user',
+          );
+        }).toList();
+
+        final extractedData = sessionData['extracted_data'] as Map<String, dynamic>? ?? {};
+        final currentStepStr = sessionData['current_step'] ?? 'summary';
+        
+        ResumeStep currentStep = ResumeStep.summary;
+        if (currentStepStr == 'experience') currentStep = ResumeStep.experience;
+        else if (currentStepStr == 'education') currentStep = ResumeStep.education;
+        else if (currentStepStr == 'skills') currentStep = ResumeStep.skills;
+        else if (currentStepStr == 'complete') currentStep = ResumeStep.complete;
+
+        state = state.copyWith(
+          messages: loadedMessages,
+          resumeData: extractedData,
+          currentStep: currentStep,
+        );
+        return;
+      }
+    } catch (e) {
+      print('Error fetching session: $e');
+    }
+
+    bool hasResume = user.resumeData != null && user.resumeData!['data'] != null;
+
+    if (hasResume && _isResumeStrong(user.resumeData!)) {
       _addMessage('Hi ${user.fullName}! Your profile resume is strong enough, please look in your resume profile.', false);
       state = state.copyWith(currentStep: ResumeStep.complete, resumeData: user.resumeData!);
     } else {
       _addMessage("Hi ${user.fullName}! Let's build your resume. I already have your email and number from your profile.", false);
-      _addMessage('To start, please provide a short professional summary or your career goals.', false);
+      if (hasResume) {
+        _addMessage('To start, please provide a short professional summary or your career goals.', false);
+      } else {
+        _addMessage("If you have a resume please upload to know more about you. If not we can start it by starting .. like some thing", false);
+        _addMessage('UPLOAD_RESUME_BUTTON', false);
+      }
       
       final initialData = Map<String, dynamic>.from(user.resumeData ?? {});
       initialData['full_name'] = user.fullName;
@@ -82,6 +121,22 @@ class ChatResumeNotifier extends Notifier<ChatResumeState> {
         resumeData: initialData,
       );
     }
+    
+    _saveSession();
+  }
+
+  void _saveSession() {
+    final chatHistory = state.messages.map((msg) => {
+      'role': msg.isUser ? 'user' : 'assistant',
+      'content': msg.text,
+    }).toList();
+    
+    _aiService.updateResumeSession(
+      chatHistory: chatHistory,
+      extractedData: state.resumeData,
+      currentStep: _getStepKey(state.currentStep),
+      status: state.currentStep == ResumeStep.complete ? 'complete' : 'in_progress',
+    );
   }
 
   void _addMessage(String text, bool isUser) {
@@ -114,7 +169,13 @@ class ChatResumeNotifier extends Notifier<ChatResumeState> {
 
     try {
       final currentStepKey = _getStepKey(state.currentStep);
-      final response = await _aiService.processResumeStep(text, currentStepKey, state.resumeData);
+      
+      final chatHistory = state.messages.map((msg) => {
+        'role': msg.isUser ? 'user' : 'assistant',
+        'content': msg.text,
+      }).toList();
+
+      final response = await _aiService.processResumeStep(text, currentStepKey, state.resumeData, chatHistory);
 
       final String aiReply = response['reply'] ?? 'Got it!';
       final bool isSufficient = response['is_sufficient'] ?? true;
@@ -150,8 +211,11 @@ class ChatResumeNotifier extends Notifier<ChatResumeState> {
       );
 
       _addMessage(aiReply, false);
+      if (nextStep == ResumeStep.complete) {
+        _addMessage('GENERATE_RESUME_BUTTON', false);
+      }
       
-      // Save updatedResumeData to backend DB here in the future
+      _saveSession();
       
     } catch (e) {
       state = state.copyWith(isTyping: false);

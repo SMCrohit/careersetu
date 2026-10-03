@@ -24,3 +24,4 @@ firebase-admin
 openpyxl==3.1.2
 pypdf==4.1.0
 httpx==0.27.0
+alembic==1.16.5

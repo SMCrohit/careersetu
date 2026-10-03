@@ -10,34 +10,42 @@ class ActiveTestState {
   final TestModel? test;
   final int currentQuestionIndex;
   final Map<int, int> selectedAnswers;
+  final Map<int, int> timeSpentPerQuestion;
   final int timeRemaining;
   final bool isFinished;
   final bool isLoading;
+  final Map<String, dynamic>? aiReport;
 
   ActiveTestState({
     this.test,
     this.currentQuestionIndex = 0,
     this.selectedAnswers = const {},
+    this.timeSpentPerQuestion = const {},
     this.timeRemaining = 600, // 10 minutes
     this.isFinished = false,
     this.isLoading = false,
+    this.aiReport,
   });
 
   ActiveTestState copyWith({
     TestModel? test,
     int? currentQuestionIndex,
     Map<int, int>? selectedAnswers,
+    Map<int, int>? timeSpentPerQuestion,
     int? timeRemaining,
     bool? isFinished,
     bool? isLoading,
+    Map<String, dynamic>? aiReport,
   }) {
     return ActiveTestState(
       test: test ?? this.test,
       currentQuestionIndex: currentQuestionIndex ?? this.currentQuestionIndex,
       selectedAnswers: selectedAnswers ?? this.selectedAnswers,
+      timeSpentPerQuestion: timeSpentPerQuestion ?? this.timeSpentPerQuestion,
       timeRemaining: timeRemaining ?? this.timeRemaining,
       isFinished: isFinished ?? this.isFinished,
       isLoading: isLoading ?? this.isLoading,
+      aiReport: aiReport ?? this.aiReport,
     );
   }
 }
@@ -53,11 +61,24 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
     return ActiveTestState();
   }
 
+  void cancelTest() {
+    _timer?.cancel();
+    state = ActiveTestState();
+  }
+
   Future<void> loadTest(String testId) async {
     state = ActiveTestState(isLoading: true);
     final repo = ref.read(testsRepositoryProvider);
     final test = await repo.fetchTest(testId);
-    state = ActiveTestState(test: test, timeRemaining: 600);
+    
+    int initialTime = test.durationMins * 60;
+    if (test.testMode == 'per_question' && test.questions.isNotEmpty) {
+      initialTime = test.questions[0].expectedTimeSeconds > 0 
+          ? test.questions[0].expectedTimeSeconds 
+          : 60;
+    }
+    
+    state = ActiveTestState(test: test, timeRemaining: initialTime);
     _startTimer();
   }
 
@@ -65,9 +86,23 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (state.timeRemaining > 0) {
-        state = state.copyWith(timeRemaining: state.timeRemaining - 1);
+        final newTimeSpent = Map<int, int>.from(state.timeSpentPerQuestion);
+        newTimeSpent[state.currentQuestionIndex] = (newTimeSpent[state.currentQuestionIndex] ?? 0) + 1;
+        
+        state = state.copyWith(
+          timeRemaining: state.timeRemaining - 1,
+          timeSpentPerQuestion: newTimeSpent,
+        );
       } else {
-        submitTest();
+        if (state.test?.testMode == 'per_question') {
+          if (state.currentQuestionIndex < state.test!.questions.length - 1) {
+            nextQuestion();
+          } else {
+            submitTest();
+          }
+        } else {
+          submitTest();
+        }
       }
     });
   }
@@ -82,7 +117,19 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
   void nextQuestion() {
     if (state.test == null) return;
     if (state.currentQuestionIndex < state.test!.questions.length - 1) {
-      state = state.copyWith(currentQuestionIndex: state.currentQuestionIndex + 1);
+      int nextIdx = state.currentQuestionIndex + 1;
+      int nextTime = state.timeRemaining;
+      
+      if (state.test!.testMode == 'per_question') {
+        nextTime = state.test!.questions[nextIdx].expectedTimeSeconds > 0
+            ? state.test!.questions[nextIdx].expectedTimeSeconds
+            : 60;
+      }
+      
+      state = state.copyWith(
+        currentQuestionIndex: nextIdx,
+        timeRemaining: nextTime,
+      );
     }
   }
 
@@ -92,18 +139,60 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
     }
   }
 
-  void submitTest() {
+  Future<void> submitTest() async {
     _timer?.cancel();
+    final currentTest = state.test;
+    if (currentTest == null) return;
+    
+    state = state.copyWith(isLoading: true);
 
-    // Capture score BEFORE marking finished (state mutation)
-    final currentScore = score;
-    final currentTestId = state.test?.id;
+    int totalScore = 0;
+    int totalTime = 0;
+    List<Map<String, dynamic>> responses = [];
 
-    state = state.copyWith(isFinished: true);
+    for (int i = 0; i < currentTest.questions.length; i++) {
+      final q = currentTest.questions[i];
+      final ansIdx = state.selectedAnswers[i];
+      final isCorrect = ansIdx != null && q.options.isNotEmpty && ansIdx < q.options.length && q.options[ansIdx] == q.correctAnswer;
+      
+      if (isCorrect) totalScore += q.points;
+      
+      final tSpent = state.timeSpentPerQuestion[i] ?? 0;
+      totalTime += tSpent;
+      
+      responses.add({
+         'question_id': q.id,
+         'is_correct': isCorrect,
+         'time_spent_seconds': tSpent,
+      });
+    }
 
-    // Persist to backend
-    if (currentTestId != null) {
-      ref.read(completedTestsProvider.notifier).saveScore(currentTestId, currentScore);
+    final payload = {
+      'test_id': currentTest.id,
+      'total_score': totalScore,
+      'time_taken_seconds': totalTime,
+      'question_responses': responses,
+    };
+    
+    try {
+        final apiClient = ref.read(apiClientProvider);
+        final response = await apiClient.post('/users/me/test-attempts', data: payload);
+        
+        Map<String, dynamic>? report;
+        if (response.data['ai_report'] != null) {
+            report = Map<String, dynamic>.from(response.data['ai_report']);
+        }
+        
+        state = state.copyWith(isFinished: true, isLoading: false, aiReport: report);
+        
+        // Save the full payload so it's available for the report immediately
+        final fullAttempt = Map<String, dynamic>.from(payload);
+        if (report != null) fullAttempt['ai_report'] = report;
+        
+        ref.read(completedTestsProvider.notifier).saveLocalScore(currentTest.id, totalScore, fullAttempt: fullAttempt);
+    } catch (e) {
+        debugPrint('Submit test failed: $e');
+        state = state.copyWith(isFinished: true, isLoading: false);
     }
   }
 
@@ -111,60 +200,51 @@ class ActiveTestNotifier extends Notifier<ActiveTestState> {
     if (state.test == null) return 0;
     int s = 0;
     for (int i = 0; i < state.test!.questions.length; i++) {
-      if (state.selectedAnswers[i] == state.test!.questions[i].correctAnswerIndex) {
-        s++;
+      final q = state.test!.questions[i];
+      final selected = state.selectedAnswers[i];
+      if (selected != null && q.options.isNotEmpty && selected < q.options.length && q.options[selected] == q.correctAnswer) {
+        s += q.points;
       }
     }
     return s;
   }
 }
 
-class CompletedTestsNotifier extends AsyncNotifier<Map<String, int>> {
+class CompletedTestsNotifier extends AsyncNotifier<Map<String, Map<String, dynamic>>> {
   @override
-  Future<Map<String, int>> build() async {
+  Future<Map<String, Map<String, dynamic>>> build() async {
     final apiClient = ref.read(apiClientProvider);
     try {
       final response = await apiClient.get('/users/me/test-attempts');
-      final Map<String, int> scores = {};
+      final Map<String, Map<String, dynamic>> attempts = {};
       for (var item in response.data) {
         final String testId = item['test_id'];
-        final int score = (item['score'] as num).toInt();
-        // Keep highest score
-        if (!scores.containsKey(testId) || score > scores[testId]!) {
-          scores[testId] = score;
+        final int score = (item['total_score'] as num?)?.toInt() ?? (item['score'] as num?)?.toInt() ?? 0;
+        final int existingScore = attempts.containsKey(testId) ? ((attempts[testId]!['total_score'] as num?)?.toInt() ?? (attempts[testId]!['score'] as num?)?.toInt() ?? 0) : -1;
+        
+        if (!attempts.containsKey(testId) || score > existingScore) {
+          attempts[testId] = item;
         }
       }
-      return scores;
+      return attempts;
     } catch (e) {
       return {};
     }
   }
 
-  Future<void> saveScore(String testId, int score) async {
-    final apiClient = ref.read(apiClientProvider);
-    try {
-      debugPrint('[TestAttempt] Saving score=$score for testId=$testId');
-      await apiClient.post('/users/me/test-attempts', data: {
-        'test_id': testId,
-        'score': score.toDouble(), // backend expects Float
-      });
-      debugPrint('[TestAttempt] Score saved successfully');
-      // Refresh local state from backend
-      ref.invalidateSelf();
-    } catch (e) {
-      debugPrint('[TestAttempt] ERROR saving score: $e');
-      // Still update local state optimistically so UI is not broken
+  void saveLocalScore(String testId, int score, {Map<String, dynamic>? fullAttempt}) {
       final current = state.value ?? {};
-      final updated = Map<String, int>.from(current);
-      if (!updated.containsKey(testId) || score > (updated[testId] ?? 0)) {
-        updated[testId] = score;
+      final updated = Map<String, Map<String, dynamic>>.from(current);
+      final existingScore = updated.containsKey(testId) ? ((updated[testId]!['total_score'] as num?)?.toInt() ?? (updated[testId]!['score'] as num?)?.toInt() ?? 0) : -1;
+      
+      if (!updated.containsKey(testId) || score > existingScore) {
+        updated[testId] = fullAttempt ?? {'test_id': testId, 'total_score': score};
       }
       state = AsyncValue.data(updated);
-    }
   }
 }
 
-final completedTestsProvider = AsyncNotifierProvider<CompletedTestsNotifier, Map<String, int>>(() {
+final completedTestsProvider = AsyncNotifierProvider<CompletedTestsNotifier, Map<String, Map<String, dynamic>>>(() {
   return CompletedTestsNotifier();
 });
 

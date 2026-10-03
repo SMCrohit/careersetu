@@ -222,7 +222,7 @@ class ProfileScreen extends ConsumerWidget {
       isScrollControlled: true,
       useRootNavigator: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _ResumeBottomSheet(user: user),
+      builder: (context) => ResumeBottomSheet(user: user),
     );
   }
 
@@ -492,16 +492,16 @@ class _EditProfileBottomSheetState extends ConsumerState<_EditProfileBottomSheet
   }
 }
 
-class _ResumeBottomSheet extends ConsumerStatefulWidget {
+class ResumeBottomSheet extends ConsumerStatefulWidget {
   final User user;
 
-  const _ResumeBottomSheet({required this.user});
+  const ResumeBottomSheet({required this.user});
 
   @override
-  ConsumerState<_ResumeBottomSheet> createState() => _ResumeBottomSheetState();
+  ConsumerState<ResumeBottomSheet> createState() => _ResumeBottomSheetState();
 }
 
-class _ResumeBottomSheetState extends ConsumerState<_ResumeBottomSheet> {
+class _ResumeBottomSheetState extends ConsumerState<ResumeBottomSheet> {
   bool _isLoading = false;
   double _uploadProgress = 0.0;
   CancelToken? _cancelToken;

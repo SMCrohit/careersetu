@@ -5,6 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../providers/resume_provider.dart';
 import 'resume_preview_screen.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../profile/presentation/screens/profile_screen.dart';
 
 class ChatResumeScreen extends ConsumerStatefulWidget {
   const ChatResumeScreen({super.key});
@@ -43,12 +44,29 @@ class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
         backgroundColor: AppColors.white,
         elevation: 0,
         actions: [
-          TextButton(
+          IconButton(
+            icon: const Icon(Icons.upload_file, color: AppColors.primaryBrand),
+            tooltip: 'Upload Resume',
+            onPressed: () {
+              final user = ref.read(authProvider).currentUser;
+              if (user != null) {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  useRootNavigator: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => ResumeBottomSheet(user: user),
+                );
+              }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf, color: AppColors.primaryBrand),
+            tooltip: 'Generate Resume',
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const ResumePreviewScreen()));
             },
-            child: const Text('Generate PDF', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold)),
-          )
+          ),
         ],
       ),
       body: Column(
@@ -106,6 +124,57 @@ class _ChatResumeScreenState extends ConsumerState<ChatResumeScreen> {
   }
 
   Widget _buildMessage(String text, bool isUser) {
+    if (text == 'UPLOAD_RESUME_BUTTON') {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ElevatedButton.icon(
+            onPressed: () {
+              final user = ref.read(authProvider).currentUser;
+              if (user != null) {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  useRootNavigator: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => ResumeBottomSheet(user: user),
+                );
+              }
+            },
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Upload Resume'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryBrand,
+              foregroundColor: AppColors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+      );
+    }
+    
+    if (text == 'GENERATE_RESUME_BUTTON') {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ResumePreviewScreen()));
+            },
+            icon: const Icon(Icons.picture_as_pdf),
+            label: const Text('Generate your Resume'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryBrand,
+              foregroundColor: AppColors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(

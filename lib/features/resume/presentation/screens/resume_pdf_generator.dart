@@ -59,53 +59,16 @@ class ResumePdfGenerator {
     final city = user.city;
     final goal = user.goal;
 
-    final summary = user.resumeData?['summary'] ?? 
-        'Dedicated and results-driven professional seeking opportunities as a $goal. Proven track record of delivering high-quality solutions, adapting quickly to new environments, and collaborating effectively in cross-functional teams to exceed organizational objectives.';
+    final summary = user.resumeData?['summary'] ?? '';
     
-    final experience = List<Map<String, dynamic>>.from(user.resumeData?['experience'] ?? [
-      {
-        'title': goal,
-        'company': 'Tech Solutions Corp',
-        'date': '2021 - Present',
-        'bullets': [
-          'Spearheaded the development of a flagship mobile application, resulting in a 40% increase in user retention.',
-          'Optimized database queries and backend architecture, reducing API latency by over 30%.',
-          'Mentored junior team members and established best practices for code reviews.',
-        ]
-      },
-      {
-        'title': 'Junior $goal',
-        'company': 'StartUp Innovate Inc',
-        'date': '2019 - 2021',
-        'bullets': [
-          'Assisted in the migration of legacy monolithic systems to a microservices architecture.',
-          'Collaborated with the QA team to increase test coverage from 45% to 85%.',
-          'Resolved critical production bugs, achieving a 99.9% uptime SLA.',
-        ]
-      }
-    ]);
+    final experience = List<Map<String, dynamic>>.from(user.resumeData?['experience'] ?? []);
 
-    final education = List<Map<String, dynamic>>.from(user.resumeData?['education'] ?? [
-      {
-        'degree': 'B.Tech in Computer Science',
-        'date': '2015 - 2019',
-        'school': 'National Institute of Technology'
-      }
-    ]);
+    final education = List<Map<String, dynamic>>.from(user.resumeData?['education'] ?? []);
 
-    final skillsText = user.resumeData?['skills'] ?? 
-        'Technical: Flutter, Dart, React, Node.js, Python, Firebase, PostgreSQL, Docker, AWS\nSoft Skills: Leadership, Agile Methodologies, Problem Solving, Public Speaking';
-    final skills = skillsText.split('\n').cast<String>();
+    final skillsText = user.resumeData?['skills'] ?? '';
+    final skills = skillsText.isEmpty ? <String>[] : skillsText.split('\n');
 
-    final projects = List<Map<String, dynamic>>.from(user.resumeData?['projects'] ?? [
-      {
-        'title': 'CareerSetu Platform',
-        'bullets': [
-          'Built a scalable career preparation application from scratch.',
-          'Implemented complex state management and responsive UI components.'
-        ]
-      }
-    ]);
+    final projects = List<Map<String, dynamic>>.from(user.resumeData?['projects'] ?? []);
 
     final colors = [
       PdfColors.blue900,

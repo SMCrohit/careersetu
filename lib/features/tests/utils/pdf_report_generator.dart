@@ -16,6 +16,10 @@ class PdfReportGenerator {
 
     final test = state.test;
     if (test == null) return Uint8List(0);
+    
+    final totalQ = test.questions.length;
+    final incorrect = attempted - score;
+    final unattempted = totalQ - attempted;
 
     pdf.addPage(
       pw.MultiPage(
@@ -24,85 +28,99 @@ class PdfReportGenerator {
         build: (pw.Context context) {
           return [
             // Header
-            pw.Header(
-              level: 0,
+            pw.Container(
+              padding: const pw.EdgeInsets.only(bottom: 20),
+              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.blueGrey200, width: 2))),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Career Setu', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
-                  pw.Text(DateFormat('MMM d, yyyy').format(DateTime.now()), style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('CAREER SETU', style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
+                      pw.SizedBox(height: 4),
+                      pw.Text('Comprehensive Performance Report', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
+                    ]
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(DateFormat('MMMM d, yyyy').format(DateTime.now()), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+                      pw.SizedBox(height: 4),
+                      pw.Text('Candidate: $userName', style: const pw.TextStyle(fontSize: 12, color: PdfColors.blueGrey800)),
+                    ]
+                  )
                 ],
               ),
             ),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 24),
             
-            // Title and Student Info
-            pw.Center(
-              child: pw.Text(
-                'Test Report: ${test.title}',
-                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-              ),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Center(
-              child: pw.Text('Candidate: $userName', style: const pw.TextStyle(fontSize: 14)),
-            ),
-            pw.SizedBox(height: 30),
+            // Title
+            pw.Text(test.title, style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+            if (test.description.isNotEmpty) ...[
+              pw.SizedBox(height: 8),
+              pw.Text(test.description, style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
+            ],
+            pw.SizedBox(height: 24),
 
-            // Summary Section
+            // Score Dashboard
             pw.Container(
               padding: const pw.EdgeInsets.all(16),
               decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-                border: pw.Border.all(color: PdfColors.grey300),
+                color: PdfColors.blue50,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+                border: pw.Border.all(color: PdfColors.blue200, width: 1.5),
               ),
               child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                 children: [
-                  _buildSummaryItem('Score', '$score / ${test.questions.length}'),
-                  _buildSummaryItem('Attempted', '$attempted'),
-                  _buildSummaryItem('Accuracy', '$accuracy%'),
+                  _buildStatCard('Score', '$score / $totalQ', PdfColors.blue800),
+                  _buildStatCard('Accuracy', '$accuracy%', PdfColors.green700),
+                  _buildStatCard('Attempted', '$attempted / $totalQ', PdfColors.orange700),
+                  _buildStatCard('Incorrect', '$incorrect', PdfColors.red700),
                 ],
               ),
             ),
-            pw.SizedBox(height: 30),
+            pw.SizedBox(height: 32),
 
-            // Detailed Review Title
-            pw.Text('Detailed Question Review', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 16),
-
-            // Questions
-            ...List.generate(test.questions.length, (index) {
-              final q = test.questions[index];
-              final selected = state.selectedAnswers[index];
-              final isCorrect = selected == q.correctAnswerIndex;
-              final isAttempted = selected != null;
-
-              return pw.Container(
-                margin: const pw.EdgeInsets.only(bottom: 16),
-                padding: const pw.EdgeInsets.all(12),
+            // AI Performance Analysis
+            if (state.aiReport != null) ...[
+              pw.Text('AI Performance Analysis', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
+              pw.SizedBox(height: 12),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(16),
                 decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey300),
+                  color: PdfColors.grey50,
                   borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  border: pw.Border.all(color: PdfColors.grey300),
                 ),
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Q${index + 1}. ${q.text}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 8),
-                    pw.Text('Correct Answer: ${q.options[q.correctAnswerIndex]}', style: const pw.TextStyle(color: PdfColors.green700)),
-                    if (isAttempted)
-                      pw.Text(
-                        'Your Answer: ${q.options[selected!]}',
-                        style: pw.TextStyle(color: isCorrect ? PdfColors.green700 : PdfColors.red700),
-                      )
-                    else
-                      pw.Text('Your Answer: Not Attempted', style: const pw.TextStyle(color: PdfColors.grey600)),
-                  ],
-                ),
-              );
-            }),
+                    if (state.aiReport!['mastered_topics'] != null && (state.aiReport!['mastered_topics'] as List).isNotEmpty) ...[
+                      pw.Text('Mastered Topics', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+                      pw.SizedBox(height: 4),
+                      pw.Text((state.aiReport!['mastered_topics'] as List).join(', '), style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey800)),
+                      pw.SizedBox(height: 12),
+                    ],
+                    if (state.aiReport!['weak_topics'] != null && (state.aiReport!['weak_topics'] as List).isNotEmpty) ...[
+                      pw.Text('Topics to Improve', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+                      pw.SizedBox(height: 4),
+                      pw.Text((state.aiReport!['weak_topics'] as List).join(', '), style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey800)),
+                      pw.SizedBox(height: 12),
+                    ],
+                    if (state.aiReport!['recommendations'] != null) ...[
+                      pw.Text('Recommendation', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                      pw.SizedBox(height: 4),
+                      pw.Text(state.aiReport!['recommendations'].toString(), style: const pw.TextStyle(fontSize: 12, lineSpacing: 1.5, color: PdfColors.black)),
+                    ],
+                  ]
+                )
+              ),
+              pw.SizedBox(height: 32),
+            ],
+
+
           ];
         },
       ),
@@ -111,12 +129,12 @@ class PdfReportGenerator {
     return pdf.save();
   }
 
-  static pw.Widget _buildSummaryItem(String label, String value) {
+  static pw.Widget _buildStatCard(String label, String value, PdfColor valueColor) {
     return pw.Column(
       children: [
-        pw.Text(label, style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
-        pw.SizedBox(height: 4),
-        pw.Text(value, style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+        pw.Text(label, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey600)),
+        pw.SizedBox(height: 8),
+        pw.Text(value, style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: valueColor)),
       ],
     );
   }

@@ -40,7 +40,19 @@ except ValueError:
         print(f"CRITICAL ERROR INITIALIZING FIREBASE: {e}")
 
 try:
-    models.Base.metadata.create_all(bind=engine)
+    import alembic.config
+    import os
+    
+    # Run Alembic upgrade head programmatically
+    alembicArgs = ['--raiseerr', 'upgrade', 'head']
+    original_cwd = os.getcwd()
+    # Ensure we are in the backend directory so alembic.ini is found
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(backend_dir)
+    try:
+        alembic.config.main(argv=alembicArgs)
+    finally:
+        os.chdir(original_cwd)
     # Initialize default admin user if none exists
     db = next(get_db())
     if db.query(models.AdminUser).count() == 0:
@@ -356,6 +368,26 @@ def update_test(test_id: str, test_update: schemas.TestBase, db: Session = Depen
     auth.log_admin_action(db, admin, "UPDATE", "Tests", test_id)
     return db_test
 
+@app.get("/api/tests/metadata/categories")
+def get_question_categories(db: Session = Depends(get_db)):
+    tests = db.query(models.Test).all()
+    sections = set()
+    topics = set()
+    subtopics = set()
+    
+    for test in tests:
+        if test.questions:
+            for q in test.questions:
+                if q.get("section"): sections.add(q["section"])
+                if q.get("topic"): topics.add(q["topic"])
+                if q.get("subtopic"): subtopics.add(q["subtopic"])
+                
+    return {
+        "sections": sorted(list(sections)),
+        "topics": sorted(list(topics)),
+        "subtopics": sorted(list(subtopics))
+    }
+
 @app.post("/api/tests/{test_id}/upload-questions")
 async def upload_questions(test_id: str, file: UploadFile = File(...), admin: str = Depends(auth.get_current_admin)):
     valid_questions = []
@@ -368,19 +400,38 @@ async def upload_questions(test_id: str, file: UploadFile = File(...), admin: st
             wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
             sheet = wb.active
             for row in sheet.iter_rows(min_row=2, values_only=True):
-                # Expected format: Question | Opt 1 | Opt 2 | Opt 3 | Opt 4 | Correct Answer
+                # Expected format: Question | Type | Opt 1 | Opt 2 | Opt 3 | Opt 4 | Correct Answer | Section | Topic | Subtopic | Difficulty | Expected Time
                 if not row or not row[0]:
                     continue
+                    
                 question_text = str(row[0]).strip()
-                options = [str(opt).strip() for opt in row[1:5] if opt is not None and str(opt).strip()]
-                correct_answer = str(row[5]).strip() if len(row) > 5 and row[5] else ""
+                q_type = str(row[1]).strip() if len(row) > 1 and row[1] else "multiple_choice"
+                options = [str(opt).strip() for opt in row[2:6] if opt is not None and str(opt).strip()]
+                correct_answer = str(row[6]).strip() if len(row) > 6 and row[6] else ""
+                
+                section = str(row[7]).strip() if len(row) > 7 and row[7] else ""
+                topic = str(row[8]).strip() if len(row) > 8 and row[8] else ""
+                subtopic = str(row[9]).strip() if len(row) > 9 and row[9] else ""
+                difficulty = str(row[10]).strip() if len(row) > 10 and row[10] else "Medium"
+                
+                try:
+                    expected_time = int(row[11]) if len(row) > 11 and row[11] else 0
+                except (ValueError, TypeError):
+                    expected_time = 0
                 
                 if len(options) >= 2 and correct_answer:
                     valid_questions.append({
                         "id": f"q_{uuid.uuid4().hex[:8]}",
-                        "text": question_text,
+                        "type": q_type,
+                        "question_text": question_text,
                         "options": options,
-                        "correct_answer": correct_answer
+                        "correct_answer": correct_answer,
+                        "section": section,
+                        "topic": topic,
+                        "subtopic": subtopic,
+                        "difficulty": difficulty,
+                        "expected_time_seconds": expected_time,
+                        "points": 1
                     })
                 else:
                     invalid_questions.append(question_text)
@@ -799,11 +850,77 @@ def get_my_test_attempts(db: Session = Depends(get_db), current_user: models.Use
     return db.query(models.TestAttempt).filter(models.TestAttempt.user_id == current_user.id).all()
 
 @app.post("/api/users/me/test-attempts", response_model=schemas.TestAttempt)
-def submit_test_attempt(attempt_req: schemas.TestAttemptCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+async def submit_test_attempt(attempt_req: schemas.TestAttemptCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    test = db.query(models.Test).filter(models.Test.id == attempt_req.test_id).first()
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+        
     db_attempt = models.TestAttempt(**attempt_req.model_dump(), user_id=current_user.id)
     db.add(db_attempt)
     db.commit()
     db.refresh(db_attempt)
+    
+    import json
+    import httpx
+    import os
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key and attempt_req.question_responses and test.questions:
+        test_q_map = {q.get("id"): q for q in test.questions if isinstance(q, dict)}
+        topic_stats = {}
+        
+        for resp in attempt_req.question_responses:
+            if not isinstance(resp, dict): continue
+            q_id = resp.get("question_id")
+            tq = test_q_map.get(q_id)
+            if not tq: continue
+            
+            topic = tq.get("topic", "General")
+            is_correct = resp.get("is_correct", False)
+            time_spent = resp.get("time_spent_seconds", 0)
+            expected_time = tq.get("expected_time_seconds", 60)
+            
+            if topic not in topic_stats:
+                topic_stats[topic] = {"correct": 0, "total": 0, "time_spent": 0, "expected_time": 0}
+                
+            topic_stats[topic]["total"] += 1
+            if is_correct: topic_stats[topic]["correct"] += 1
+            topic_stats[topic]["time_spent"] += time_spent
+            topic_stats[topic]["expected_time"] += expected_time
+
+        system_prompt = f"""
+You are an expert career and academic counselor. Analyze the following student test performance data aggregated by topic.
+Data: {json.dumps(topic_stats)}
+
+Create a personalized JSON report identifying:
+1. "mastered_topics": List of topics with high accuracy and fast time.
+2. "weak_topics": List of topics with low accuracy OR significantly high time spent.
+3. "recommendations": A short, encouraging paragraph on what to study next.
+
+Return ONLY a valid JSON object matching the structure: {{"mastered_topics": [str], "weak_topics": [str], "recommendations": str}}
+"""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": "gpt-4o-mini",
+                        "response_format": {"type": "json_object"},
+                        "messages": [{"role": "system", "content": system_prompt}],
+                        "temperature": 0.7
+                    },
+                    timeout=15.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    content = data["choices"][0]["message"]["content"].strip()
+                    db_attempt.ai_report = json.loads(content)
+                    db.commit()
+                    db.refresh(db_attempt)
+            except Exception as e:
+                print("AI Report generation failed:", e)
+                
     return db_attempt
 
 # --- Notifications ---
@@ -978,10 +1095,17 @@ You are an expert professional resume writer interviewing a user.
 The current section you are gathering information for is: {req.current_step}.
 The user's current resume data is: {json.dumps(req.current_resume_data)}.
 
+Please carefully review the conversation history.
 Evaluate the user's latest input: "{req.user_input}"
 
-1. If the input is too brief, vague, or invalid (e.g. they say "hi", "yes", or give a 1-word answer for work history), ask a polite follow-up question to get more details for the {req.current_step}. DO NOT extract data, and keep next_step as "{req.current_step}".
-2. If the input provides good information for the {req.current_step}, extract and professionalize it into "extracted_data". Then, decide what the next step should be (e.g. summary -> experience -> education -> skills -> complete). Formulate a "reply" asking them for information about the "next_step".
+Strict Rules:
+1. "Upload Resume" Context: If your last message asked the user to upload a resume and they respond with a greeting (like 'hi') or say they don't have one, politely acknowledge it (e.g., 'Hello! Since you haven't uploaded a resume, let's build one from scratch. Could you please provide a brief summary...') and set next_step as "{req.current_step}".
+2. Missing Info / Skipping: If the user explicitly states they don't know, don't have, or want to skip the current section, DO NOT force them. Set `is_sufficient` to true (with empty `extracted_data`), politely acknowledge it, and move to the `next_step` (e.g., from summary to experience).
+3. Off-Topic: If the input is completely unrelated to resume building, do not extract data. Politely steer them back and restate the question for the {req.current_step}.
+4. Preventing Loops: Never ask for information that is already present in `current_resume_data`. If the data is sufficient, always transition to the next logical step (summary -> experience -> education -> skills -> complete).
+5. Incomplete Info: If the input is relevant but too brief (e.g., a 1-word answer for work history), ask a polite follow-up question for the {req.current_step}. DO NOT extract data, and keep next_step as "{req.current_step}".
+
+If the input provides good information for the {req.current_step}, extract and professionalize it into "extracted_data", decide the "next_step", and formulate a "reply" asking for the next information.
 
 For "extracted_data", YOU MUST strictly follow this JSON schema depending on the current section:
 - If section is "summary": Return a single string.
@@ -990,13 +1114,23 @@ For "extracted_data", YOU MUST strictly follow this JSON schema depending on the
 - If section is "skills": Return a single string with skills separated by commas or newlines.
 
 Return your response ONLY as a JSON object with:
-- "is_sufficient": boolean (true if you got enough info to move to the next section, false if you need to ask more about the current section)
+- "is_sufficient": boolean (true if you got enough info or the user skipped, false if you need to ask more about the current section)
 - "reply": Your conversational response to the user.
-- "extracted_data": (Optional) The professionalized data matching the schema above. Only provide this if is_sufficient is true.
-- "next_step": The string key of the next section to move to ("summary", "experience", "education", "skills", "complete"). If is_sufficient is false, next_step MUST be "{req.current_step}".
+- "extracted_data": (Optional) The professionalized data matching the schema above.
+- "next_step": The string key of the next section to move to. If is_sufficient is false, next_step MUST be "{req.current_step}".
 
 Do not wrap the JSON in Markdown code blocks like ```json, just return the raw JSON object.
 """
+
+    messages = [{"role": "system", "content": system_prompt}]
+    if req.chat_history:
+        for msg in req.chat_history[-5:]: # Only send the last 5 messages to avoid token bloat
+            role = msg.get("role", "user")
+            if role not in ["user", "assistant", "system"]:
+                role = "user"
+            messages.append({"role": role, "content": msg.get("content", "")})
+    
+    messages.append({"role": "user", "content": req.user_input})
 
     async with httpx.AsyncClient() as client:
         try:
@@ -1009,10 +1143,7 @@ Do not wrap the JSON in Markdown code blocks like ```json, just return the raw J
                 json={
                     "model": "gpt-4o-mini",
                     "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": req.user_input}
-                    ],
+                    "messages": messages,
                     "temperature": 0.7
                 },
                 timeout=30.0
@@ -1035,3 +1166,52 @@ Do not wrap the JSON in Markdown code blocks like ```json, just return the raw J
             raise HTTPException(status_code=e.response.status_code, detail=f"OpenAI error: {e.response.text}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error communicating with AI: {str(e)}")
+
+# --- Resume Session Endpoints ---
+@app.get("/api/resume/session", response_model=schemas.ResumeSessionOut)
+def get_resume_session(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user_id = current_user.get("user_id")
+    session = db.query(models.ResumeSession).filter(models.ResumeSession.user_id == user_id, models.ResumeSession.is_active == True).first()
+    
+    if not session:
+        # Create a new session and initialize with user.resume_data if it exists
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        initial_extracted = user.resume_data if user and user.resume_data else {}
+        uploaded_info = None
+        if initial_extracted and "data" in initial_extracted:
+            uploaded_info = initial_extracted
+        
+        session = models.ResumeSession(
+            user_id=user_id,
+            chat_history=[],
+            extracted_data=initial_extracted,
+            uploaded_resume_info=uploaded_info
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        
+    return session
+
+@app.post("/api/resume/session/update", response_model=schemas.ResumeSessionOut)
+def update_resume_session(req: schemas.ResumeSessionUpdate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user_id = current_user.get("user_id")
+    session = db.query(models.ResumeSession).filter(models.ResumeSession.user_id == user_id, models.ResumeSession.is_active == True).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    if req.chat_history is not None:
+        session.chat_history = req.chat_history
+    if req.extracted_data is not None:
+        session.extracted_data = req.extracted_data
+    if req.uploaded_resume_info is not None:
+        session.uploaded_resume_info = req.uploaded_resume_info
+    if req.status is not None:
+        session.status = req.status
+    if req.current_step is not None:
+        session.current_step = req.current_step
+        
+    db.commit()
+    db.refresh(session)
+    return session

@@ -5,6 +5,7 @@ import '../../../../core/widgets/custom_buttons.dart';
 import '../providers/tests_provider.dart';
 
 import 'package:file_saver/file_saver.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../core/widgets/custom_toast.dart';
 import '../../utils/pdf_report_generator.dart';
@@ -38,9 +39,9 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
       );
 
       final testTitle = state.test?.title.replaceAll(' ', '_') ?? 'Test';
-      final fileName = '${testTitle}_Report_${DateTime.now().millisecondsSinceEpoch}';
+      final fileName = '${testTitle}_Report_${DateTime.now().millisecondsSinceEpoch}.pdf';
       
-      await FileSaver.instance.saveFile(
+      final path = await FileSaver.instance.saveFile(
         name: fileName,
         bytes: pdfBytes,
         mimeType: MimeType.pdf,
@@ -48,6 +49,10 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
 
       if (mounted) {
         CustomToast.showSuccess(context, 'Report downloaded to device!');
+      }
+      
+      if (path != null && path.isNotEmpty) {
+        await OpenFilex.open(path);
       }
     } catch (e) {
       if (mounted) {
@@ -161,6 +166,62 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
             ),
             
             const SizedBox(height: 24),
+            
+            if (state.aiReport != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('AI Performance Analysis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryBrand)),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (state.aiReport!['mastered_topics'] != null && (state.aiReport!['mastered_topics'] as List).isNotEmpty) ...[
+                            const Text('Mastered Topics:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: (state.aiReport!['mastered_topics'] as List).map((t) => Chip(
+                                label: Text(t.toString(), style: const TextStyle(fontSize: 12, color: AppColors.success)),
+                                backgroundColor: const Color(0xFFF0FDF4),
+                                side: const BorderSide(color: AppColors.success, width: 0.5),
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (state.aiReport!['weak_topics'] != null && (state.aiReport!['weak_topics'] as List).isNotEmpty) ...[
+                            const Text('Topics to Improve:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.error)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: (state.aiReport!['weak_topics'] as List).map((t) => Chip(
+                                label: Text(t.toString(), style: const TextStyle(fontSize: 12, color: AppColors.error)),
+                                backgroundColor: const Color(0xFFFEF2F2),
+                                side: const BorderSide(color: AppColors.error, width: 0.5),
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (state.aiReport!['recommendations'] != null) ...[
+                            const Text('Recommendation:', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                            const SizedBox(height: 8),
+                            Text(state.aiReport!['recommendations'].toString(), style: const TextStyle(fontSize: 14, color: AppColors.secondaryText, height: 1.5)),
+                          ]
+                        ]
+                      )
+                    ),
+                  ]
+                )
+              ),
+            
+            const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -206,16 +267,12 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
     for (int i = 0; i < questions.length; i++) {
       final q = questions[i];
       final selected = state.selectedAnswers[i];
+      final isCorrect = selected != null && q.options.isNotEmpty && selected < q.options.length && q.options[selected] == q.correctAnswer;
       
       if (isCorrectReview) {
-        if (selected == q.correctAnswerIndex) {
-          filteredIndices.add(i);
-        }
+        if (isCorrect) filteredIndices.add(i);
       } else {
-        // Incorrect means selected is wrong, or unattempted
-        if (selected != q.correctAnswerIndex) {
-          filteredIndices.add(i);
-        }
+        if (!isCorrect) filteredIndices.add(i);
       }
     }
     
@@ -267,19 +324,19 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
                                 const SizedBox(height: 12),
                                 ...List.generate(q.options.length, (optIndex) {
                                   final isSelected = selected == optIndex;
-                                  final isCorrect = q.correctAnswerIndex == optIndex;
+                                  final isActuallyCorrect = q.options.isNotEmpty && optIndex < q.options.length && q.options[optIndex] == q.correctAnswer;
                                   
                                   Color bgColor = AppColors.white;
                                   Color borderColor = AppColors.border;
                                   IconData? icon;
                                   Color iconColor = Colors.transparent;
                                   
-                                  if (isCorrect) {
+                                  if (isActuallyCorrect) {
                                     bgColor = const Color(0xFFF0FDF4); // Light green
                                     borderColor = AppColors.success;
                                     icon = Icons.check_circle;
                                     iconColor = AppColors.success;
-                                  } else if (isSelected && !isCorrect) {
+                                  } else if (isSelected && !isActuallyCorrect) {
                                     bgColor = const Color(0xFFFEF2F2); // Light red
                                     borderColor = AppColors.error;
                                     icon = Icons.cancel;

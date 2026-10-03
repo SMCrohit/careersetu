@@ -53,6 +53,7 @@ class Test(BaseModel):
     difficulty = Column(String)
     provider_name = Column(String)
     max_discount_percentage = Column(Integer)
+    test_mode = Column(String, default="overall")
     questions = Column(JSON, default=[])
 
 class Professional(BaseModel):
@@ -96,6 +97,17 @@ class ClaimedOffer(BaseModel):
     user = relationship("User")
     offer = relationship("Offer")
 
+class ResumeSession(BaseModel):
+    __tablename__ = "resume_sessions"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    chat_history = Column(JSON, default=[])
+    extracted_data = Column(JSON, default={})
+    uploaded_resume_info = Column(JSON, nullable=True)
+    status = Column(String, default="in_progress")
+    current_step = Column(String, default="summary")
+
+    user = relationship("User")
+
 class Notification(BaseModel):
     __tablename__ = "notifications"
     title = Column(String)
@@ -122,7 +134,13 @@ class TestAttempt(BaseModel):
     __tablename__ = "test_attempts"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     test_id = Column(UUID(as_uuid=True), ForeignKey("tests.id"))
-    score = Column(Float)
+    total_score = Column(Integer)
+    time_taken_seconds = Column(Integer)
+    completed_at = Column(DateTime, default=datetime.utcnow)
+    question_responses = Column(JSON, default=[])
+    ai_report = Column(JSON)
+    test = relationship("Test")
+    user = relationship("User")
 
 class ProfessionalAppointment(BaseModel):
     __tablename__ = "professional_appointments"

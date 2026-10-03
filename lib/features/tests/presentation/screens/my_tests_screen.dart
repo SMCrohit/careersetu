@@ -5,6 +5,11 @@ import '../../../../core/widgets/custom_buttons.dart';
 import '../../domain/test_model.dart';
 import '../providers/tests_provider.dart';
 import 'active_test_screen.dart';
+import 'package:file_saver/file_saver.dart';
+import 'package:open_filex/open_filex.dart';
+import '../../utils/pdf_report_generator.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../../core/widgets/custom_toast.dart';
 
 class MyTestsScreen extends ConsumerStatefulWidget {
   const MyTestsScreen({super.key});
@@ -31,6 +36,75 @@ class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
   void _onScroll() {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       ref.read(attemptedTestsProvider.notifier).fetchNextPage();
+    }
+  }
+
+  Future<void> _downloadPastReport(TestModel test, Map<String, dynamic> attemptData) async {
+    final user = ref.read(authProvider);
+    final userName = user.currentUser?.fullName ?? 'Student';
+    final score = (attemptData['total_score'] as num?)?.toInt() ?? 0;
+    
+    // Reconstruct state
+    final selectedAnswers = <int, int>{};
+    int attempted = 0;
+    
+    if (attemptData['question_responses'] != null) {
+      final responses = attemptData['question_responses'] as List;
+      attempted = responses.length;
+      
+      for (int i = 0; i < test.questions.length; i++) {
+        final q = test.questions[i];
+        
+        final resp = responses.firstWhere(
+          (r) => r['question_id'] == q.id, 
+          orElse: () => null
+        );
+        
+        if (resp != null) {
+          final isCorrect = resp['is_correct'] == true;
+          if (isCorrect) {
+            final correctIdx = q.options.indexWhere((opt) => opt == q.correctAnswer);
+            if (correctIdx != -1) selectedAnswers[i] = correctIdx;
+          } else {
+            final wrongIdx = q.options.indexWhere((opt) => opt != q.correctAnswer);
+            if (wrongIdx != -1) selectedAnswers[i] = wrongIdx;
+          }
+        }
+      }
+    } else {
+       attempted = test.questions.length;
+    }
+    
+    final accuracy = attempted > 0 ? ((score / attempted) * 100).toInt() : 0;
+    
+    final mockState = ActiveTestState(
+      test: test,
+      selectedAnswers: selectedAnswers,
+      aiReport: attemptData['ai_report'],
+    );
+    
+    try {
+      final pdfBytes = await PdfReportGenerator.generateTestReport(
+        state: mockState,
+        userName: userName,
+        score: score,
+        attempted: attempted,
+        accuracy: accuracy,
+      );
+      
+      final fileName = '${test.title.replaceAll(' ', '_')}_Report.pdf';
+      final path = await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: pdfBytes,
+        mimeType: MimeType.pdf,
+      );
+      if (mounted) CustomToast.showSuccess(context, 'Report downloaded successfully!');
+      
+      if (path != null && path.isNotEmpty) {
+        await OpenFilex.open(path);
+      }
+    } catch (e) {
+      if (mounted) CustomToast.showError(context, 'Failed to download report.');
     }
   }
 
@@ -83,13 +157,13 @@ class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
                   );
                 }
                 final test = state.items[index];
-                final score = completedTestsAsync.value?[test.id];
+                final attemptData = completedTestsAsync.value?[test.id];
                 return _buildTestCard(
                   context: context,
                   ref: ref,
                   test: test,
                   isCompleted: true,
-                  score: score,
+                  attemptData: attemptData,
                 );
               },
             ),
@@ -104,8 +178,9 @@ class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
     required WidgetRef ref, 
     required TestModel test, 
     required bool isCompleted, 
-    int? score
+    Map<String, dynamic>? attemptData
   }) {
+    final score = attemptData != null ? ((attemptData['total_score'] as num?)?.toInt() ?? 0) : null;
     // Determine the discount unlocked if completed
     int discountUnlocked = 0;
     if (isCompleted && score != null) {
@@ -187,11 +262,26 @@ class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Text('Your Score', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-                    Text('$score / ${test.questions.length}', style: const TextStyle(color: AppColors.primaryText, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Your Score', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                        Text('$score / ${test.questions.length}', style: const TextStyle(color: AppColors.primaryText, fontSize: 18, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    if (isCompleted && attemptData != null) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.download_for_offline, color: AppColors.primaryBrand, size: 28),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        tooltip: 'Download Report',
+                        onPressed: () => _downloadPastReport(test, attemptData),
+                      ),
+                    ],
                   ],
                 ),
                 if (discountUnlocked > 0)
@@ -230,16 +320,21 @@ class _MyTestsScreenState extends ConsumerState<MyTestsScreen> {
           ],
           
           const SizedBox(height: 16),
-          PrimaryButton(
-            text: isCompleted ? 'Retest (Practice Only)' : 'Start Test',
-            onPressed: () async {
-              ref.read(activeTestProvider.notifier).loadTest(test.id);
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveTestScreen()));
-              
-              if (!isCompleted) {
-                ref.read(attemptedTestsProvider.notifier).refresh();
-              }
-            },
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              PrimaryButton(
+                text: isCompleted ? 'Retest (Practice Only)' : 'Start Test',
+                onPressed: () async {
+                  ref.read(activeTestProvider.notifier).loadTest(test.id);
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveTestScreen()));
+                  
+                  if (!isCompleted) {
+                    ref.read(attemptedTestsProvider.notifier).refresh();
+                  }
+                },
+              ),
+            ],
           )
         ],
       ),
