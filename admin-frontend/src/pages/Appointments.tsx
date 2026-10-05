@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
-import { Search, CheckCircle, Clock, Send } from 'lucide-react';
+import { CheckCircle, Clock, Send, Calendar, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Filter } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { DataTable, type Column } from '../components/DataTable';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface User {
   full_name: string;
@@ -31,8 +35,22 @@ const Appointments = () => {
   const [loading, setLoading] = useState(true);
   const [filterProfession, setFilterProfession] = useState("All");
 
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchAppointments();
+  }, []);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const fetchAppointments = async () => {
@@ -83,98 +101,200 @@ const Appointments = () => {
     }
   };
 
+  const filteredAppointments = appointments.filter(appt => 
+    filterProfession === "All" || appt.professional?.profession === filterProfession
+  );
+
+  // ── Export helpers ─────────────────────────────────────────────────────────
+  const exportRows = filteredAppointments.map((appt, i) => ({
+    '#': i + 1,
+    'Patient Name': appt.user?.full_name || '—',
+    'Mobile': appt.user?.mobile_number || '—',
+    'Professional': appt.professional?.name || '—',
+    'Profession': appt.professional?.profession || '—',
+    'Clinic': appt.professional?.clinic || '—',
+    'Date': appt.appointment_date,
+    'Time': appt.appointment_time,
+    'Status': appt.status,
+  }));
+
+  const exportToCSV = () => {
+    if (exportRows.length === 0) return;
+    const headers = Object.keys(exportRows[0]);
+    const rows = exportRows.map((r) => headers.map((h) => `"${(r as any)[h]}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'appointments.csv'; a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+    showToast('CSV exported successfully', 'success');
+  };
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Appointments');
+    XLSX.writeFile(wb, 'appointments.xlsx');
+    setExportOpen(false);
+    showToast('Excel exported successfully', 'success');
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(16);
+    doc.text('Appointments', 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${filteredAppointments.length} appointments`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [['#', 'Patient', 'Mobile', 'Professional', 'Profession', 'Date', 'Time', 'Status']],
+      body: exportRows.map((r) => Object.values(r).filter((_, i) => i !== 5)), // Removing Clinic to fit width
+      styles: { fontSize: 7.5, cellPadding: 2.5 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 255] },
+    });
+    doc.save('appointments.pdf');
+    setExportOpen(false);
+    showToast('PDF exported successfully', 'success');
+  };
+
+  const columns: Column<Appointment>[] = [
+    {
+      header: 'Patient',
+      accessorKey: 'user.full_name', // enables search
+      cell: (appt) => (
+        <div>
+          <div className="font-medium text-primaryText">{appt.user?.full_name || 'Unknown User'}</div>
+          <div className="text-xs text-secondaryText">{appt.user?.mobile_number || ''}</div>
+        </div>
+      )
+    },
+    {
+      header: 'Professional',
+      accessorKey: 'professional.name', // enables search
+      cell: (appt) => (
+        <div>
+          <div className="font-medium text-primaryText">{appt.professional?.name || 'Unknown Professional'}</div>
+          <div className="text-xs text-secondaryText">{appt.professional?.clinic || ''}</div>
+        </div>
+      )
+    },
+    {
+      header: 'Date & Time',
+      accessorKey: 'appointment_date',
+      cell: (appt) => (
+        <div className="text-secondaryText">
+          {appt.appointment_date} <br/>
+          <span className="text-xs">{appt.appointment_time}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Status',
+      accessorKey: 'status',
+      cell: (appt) => getStatusBadge(appt.status)
+    },
+    {
+      header: 'Actions',
+      cell: (appt) => (
+        <div className="text-right">
+          {appt.status === 'pending' && (
+            <button 
+              onClick={() => updateStatus(appt.id, 'sent_to_doctor')}
+              className="px-3 py-1.5 bg-primaryBrand text-white rounded text-sm font-medium hover:bg-opacity-90 transition-colors"
+            >
+              Send to Professional
+            </button>
+          )}
+          {appt.status === 'sent_to_doctor' && (
+            <button 
+              onClick={() => updateStatus(appt.id, 'completed')}
+              disabled={!isAppointmentPast(appt.appointment_date, appt.appointment_time)}
+              className={`px-3 py-1.5 text-white rounded text-sm font-medium transition-colors ${!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-opacity-90'}`}
+              title={!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'Cannot complete a future appointment' : ''}
+            >
+              Mark Completed
+            </button>
+          )}
+        </div>
+      )
+    }
+  ];
+
+  const toolbarExtras = (
+    <div className="relative w-48">
+      <Filter className="absolute left-3 top-2.5 text-borderDark" size={18} />
+      <select 
+        className="input-field pl-10 pr-8 bg-white appearance-none cursor-pointer w-full" 
+        value={filterProfession} 
+        onChange={e => setFilterProfession(e.target.value)}
+      >
+        <option value="All">All Professions</option>
+        <option value="Doctor">Doctors</option>
+        <option value="CA">CAs</option>
+        <option value="Developer">Developers</option>
+        <option value="Teacher">Teachers</option>
+        <option value="Professor">Professors</option>
+        <option value="Lawyer">Lawyers</option>
+        <option value="Consultant">Consultants</option>
+      </select>
+      <ChevronDown className="absolute right-3 top-3 text-borderDark pointer-events-none" size={16} />
+    </div>
+  );
+
   return (
     <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-primaryText">Professional Appointments</h1>
           <p className="text-secondaryText">Manage patient appointments and assign them to professionals.</p>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="p-4 border-b border-border flex justify-between items-center bg-gray-50/50">
-
-          <div className="flex gap-4">
-            <div className="relative w-72">
-              <Search className="absolute left-3 top-2.5 text-borderDark" size={18} />
-              <input type="text" placeholder="Search appointments..." className="input-field pl-10 bg-white" />
-            </div>
-            <select className="input-field bg-white w-48" value={filterProfession} onChange={e => setFilterProfession(e.target.value)}>
-              <option value="All">All Professions</option>
-              <option value="Doctor">Doctors</option>
-              <option value="CA">CAs</option>
-              <option value="Developer">Developers</option>
-              <option value="Teacher">Teachers</option>
-              <option value="Professor">Professors</option>
-              <option value="Lawyer">Lawyers</option>
-              <option value="Consultant">Consultants</option>
-            </select>
+        
+        <div className="flex items-center gap-3">
+          <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
+            {filteredAppointments.length} Appointments
           </div>
 
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-border text-sm text-secondaryText">
-                <th className="p-4 font-medium">Patient</th>
-                <th className="p-4 font-medium">Professional</th>
-                <th className="p-4 font-medium">Date & Time</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={5} className="text-center p-8 text-secondaryText">Loading appointments...</td></tr>
-              ) : appointments.length === 0 ? (
-                <tr><td colSpan={5} className="text-center p-8 text-secondaryText">No appointments found.</td></tr>
-              ) : (
-                appointments.filter(appt => filterProfession === "All" || appt.professional?.profession === filterProfession).map((appt) => (
-                  <tr key={appt.id} className="border-b border-border hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4">
-                      <div className="font-medium text-primaryText">{appt.user?.full_name || 'Unknown User'}</div>
-                      <div className="text-xs text-secondaryText">{appt.user?.mobile_number || ''}</div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-medium text-primaryText">{appt.professional?.name || 'Unknown Professional'}</div>
-                      <div className="text-xs text-secondaryText">{appt.professional?.clinic || ''}</div>
-                    </td>
-                    <td className="p-4 text-secondaryText">
-                      {appt.appointment_date} <br/>
-                      <span className="text-xs">{appt.appointment_time}</span>
-                    </td>
-                    <td className="p-4">
-                      {getStatusBadge(appt.status)}
-                    </td>
-                    <td className="p-4 text-right">
-                      {appt.status === 'pending' && (
-                        <button 
-                          onClick={() => updateStatus(appt.id, 'sent_to_doctor')}
-                          className="px-3 py-1.5 bg-primaryBrand text-white rounded text-sm font-medium hover:bg-opacity-90 transition-colors"
-                        >
-                          Send to Professional
-                        </button>
-                      )}
-                      {appt.status === 'sent_to_doctor' && (
-                        <button 
-                          onClick={() => updateStatus(appt.id, 'completed')}
-                          disabled={!isAppointmentPast(appt.appointment_date, appt.appointment_time)}
-                          className={`px-3 py-1.5 text-white rounded text-sm font-medium transition-colors ${!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-opacity-90'}`}
-                          title={!isAppointmentPast(appt.appointment_date, appt.appointment_time) ? 'Cannot complete a future appointment' : ''}
-                        >
-                          Mark Completed
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {/* Export */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
+            >
+              <Download size={16} />
+              Export
+              <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
+                  <FileText size={16} className="text-red-500" /> Export as PDF
+                </button>
+                <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
+                </button>
+                <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileDown size={16} className="text-blue-500" /> Export as CSV
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      <DataTable
+        data={filteredAppointments}
+        columns={columns}
+        searchPlaceholder="Search appointments..."
+        searchableKeys={['user.full_name', 'professional.name', 'user.mobile_number']}
+        loading={loading}
+        emptyStateMessage="No appointments found."
+        emptyStateIcon={<Calendar size={36} className="text-border" />}
+        toolbarExtras={toolbarExtras}
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Users, Briefcase, FileText, Calendar } from 'lucide-react';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
@@ -10,8 +10,14 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totals: { users: 0, jobs: 0, tests: 0, appointments: 0 },
-    chart_data: []
+    chart_data: [],
+    users_by_city: [],
+    users_by_goal: [],
+    job_applications_status: [],
+    appointments_by_profession: []
   });
+  
+  const COLORS = ['#0A66C2', '#4FACFE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   useEffect(() => {
     fetchStats();
@@ -57,7 +63,7 @@ const Dashboard = () => {
         <StatCard title="Appointments" value={loading ? '...' : stats.totals.appointments.toLocaleString()} icon={Calendar} color="text-[#F59E0B]" bg="bg-[#F59E0B]/10" />
       </div>
 
-      <div className="card p-6 h-[420px] flex flex-col">
+      <div className="card p-6 h-[420px] flex flex-col mb-8">
         <h2 className="text-lg font-semibold mb-6">
           Activity Trends ({['Today', 'Yesterday'].includes(filter) ? 'Last 7 Days' : filter})
         </h2>
@@ -79,6 +85,89 @@ const Dashboard = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* New B2B Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Users by City */}
+        <div className="card p-6 h-[350px] flex flex-col">
+          <h2 className="text-lg font-semibold mb-2">Users by City</h2>
+          {loading ? (
+             <div className="flex-1 flex items-center justify-center text-secondaryText">Loading...</div>
+          ) : (
+             <ResponsiveContainer width="100%" height="100%">
+               <PieChart>
+                 <Pie data={stats.users_by_city} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                   {stats.users_by_city.map((entry: any, index: number) => (
+                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                   ))}
+                 </Pie>
+                 <Tooltip />
+                 <Legend />
+               </PieChart>
+             </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Users by Goal */}
+        <div className="card p-6 h-[350px] flex flex-col">
+          <h2 className="text-lg font-semibold mb-2">Users by Goal</h2>
+          {loading ? (
+             <div className="flex-1 flex items-center justify-center text-secondaryText">Loading...</div>
+          ) : (
+             <ResponsiveContainer width="100%" height="100%">
+               <PieChart>
+                 <Pie data={stats.users_by_goal} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                   {stats.users_by_goal.map((entry: any, index: number) => (
+                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                   ))}
+                 </Pie>
+                 <Tooltip />
+                 <Legend />
+               </PieChart>
+             </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Job Applications Status */}
+        <div className="card p-6 h-[350px] flex flex-col">
+          <h2 className="text-lg font-semibold mb-2">Job Applications Status</h2>
+          {loading ? (
+             <div className="flex-1 flex items-center justify-center text-secondaryText">Loading...</div>
+          ) : (
+             <ResponsiveContainer width="100%" height="100%">
+               <PieChart>
+                 <Pie data={stats.job_applications_status} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100} label>
+                   {stats.job_applications_status.map((entry: any, index: number) => (
+                     <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                   ))}
+                 </Pie>
+                 <Tooltip />
+                 <Legend />
+               </PieChart>
+             </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Professional Consultations Demand */}
+        <div className="card p-6 h-[350px] flex flex-col">
+          <h2 className="text-lg font-semibold mb-2">Consultations Demand (By Profession)</h2>
+          {loading ? (
+             <div className="flex-1 flex items-center justify-center text-secondaryText">Loading...</div>
+          ) : (
+             <ResponsiveContainer width="100%" height="100%">
+               <PieChart>
+                 <Pie data={stats.appointments_by_profession} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100} label>
+                   {stats.appointments_by_profession.map((entry: any, index: number) => (
+                     <Cell key={`cell-${index}`} fill={COLORS[(index + 4) % COLORS.length]} />
+                   ))}
+                 </Pie>
+                 <Tooltip />
+                 <Legend />
+               </PieChart>
+             </ResponsiveContainer>
+          )}
+        </div>
       </div>
     </div>
   );

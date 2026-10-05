@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api from '../api/axios';
-import { FileText, Search, User, BookOpen, Calendar, Trophy } from 'lucide-react';
+import { FileText, User, BookOpen, Calendar, Trophy, Download, ChevronDown, FileSpreadsheet, FileDown } from 'lucide-react';
+import { DataTable, type Column } from '../components/DataTable';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { useToast } from '../context/ToastContext';
 
 type TestAttempt = {
   id: string;
@@ -28,10 +33,13 @@ const difficultyColors: Record<string, string> = {
 };
 
 const AttemptedTests = () => {
+  const { showToast } = useToast();
   const [attempts, setAttempts] = useState<TestAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
+  
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchAttempts = async () => {
@@ -40,6 +48,7 @@ const AttemptedTests = () => {
         setAttempts(data);
       } catch (err) {
         setError('Failed to load test attempts.');
+        showToast('Failed to load test attempts.', 'error');
       } finally {
         setLoading(false);
       }
@@ -47,14 +56,16 @@ const AttemptedTests = () => {
     fetchAttempts();
   }, []);
 
-  const filtered = attempts.filter((att) => {
-    return (
-      att.user?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      att.test?.title?.toLowerCase().includes(search.toLowerCase()) ||
-      att.test?.tag?.toLowerCase().includes(search.toLowerCase()) ||
-      att.user?.mobile_number?.includes(search)
-    );
-  });
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const formatDate = (iso: string) => {
     if (!iso) return '—';
@@ -73,116 +84,198 @@ const AttemptedTests = () => {
     return 'text-red-500';
   };
 
-  return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-primaryBrand/10 rounded-xl flex items-center justify-center">
-          <FileText className="text-primaryBrand" size={20} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-primaryText">Attempted Tests</h1>
-          <p className="text-sm text-secondaryText">All test attempts made by users</p>
-        </div>
-        <div className="ml-auto bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
-          {filtered.length} Attempts
-        </div>
-      </div>
+  // ── Export helpers ─────────────────────────────────────────────────────────
+  const exportRows = attempts.map((att, i) => ({
+    '#': i + 1,
+    User: att.user?.full_name || '—',
+    Mobile: att.user?.mobile_number || '—',
+    City: att.user?.city || '—',
+    Test: att.test?.title || '—',
+    Tag: att.test?.tag || '—',
+    Difficulty: att.test?.difficulty || '—',
+    Score: att.score != null ? att.score : '—',
+    'Total Questions': att.total_questions || 0,
+    'Attempted On': formatDate(att.attempted_at),
+  }));
 
-      {/* Search */}
-      <div className="relative mb-6 max-w-md">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondaryText" />
-        <input
-          type="text"
-          placeholder="Search by user, test name or tag..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm text-primaryText focus:outline-none focus:ring-2 focus:ring-primaryBrand/30"
-        />
-      </div>
+  const exportToCSV = () => {
+    if (exportRows.length === 0) return;
+    const headers = Object.keys(exportRows[0]);
+    const rows = exportRows.map((r) => headers.map((h) => `"${(r as any)[h]}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'attempted_tests.csv'; a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+    showToast('CSV exported successfully', 'success');
+  };
 
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-primaryBrand border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : error ? (
-        <div className="bg-red-50 text-red-600 p-6 rounded-xl border border-red-200 text-center">{error}</div>
-      ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-border p-16 flex flex-col items-center justify-center text-center">
-          <FileText size={40} className="text-border mb-3" />
-          <p className="text-primaryText font-medium">No test attempts found</p>
-          <p className="text-secondaryText text-sm mt-1">Try changing your search.</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-border overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-backgroundLight border-b border-border">
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">#</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">User</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">Test</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">Tag</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">Difficulty</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">Score</th>
-                  <th className="text-left px-5 py-3.5 text-secondaryText font-semibold">Attempted On</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((att, idx) => (
-                  <tr key={att.id} className="border-b border-border last:border-0 hover:bg-backgroundLight/50 transition-colors">
-                    <td className="px-5 py-4 text-secondaryText">{idx + 1}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-primaryBrand/10 flex items-center justify-center shrink-0">
-                          <User size={14} className="text-primaryBrand" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-primaryText">{att.user?.full_name || '—'}</p>
-                          <p className="text-xs text-secondaryText">{att.user?.mobile_number || '—'} &middot; {att.user?.city || '—'}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <BookOpen size={14} className="text-secondaryText shrink-0" />
-                        <p className="font-medium text-primaryText">{att.test?.title || '—'}</p>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="px-2 py-1 rounded-md bg-backgroundLight text-secondaryText text-xs font-medium">
-                        {att.test?.tag || '—'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${difficultyColors[att.test?.difficulty || ''] || 'bg-gray-100 text-gray-600'}`}>
-                        {att.test?.difficulty || '—'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-1.5">
-                        <Trophy size={14} className={getScoreColor(att.score, att.total_questions)} />
-                        <span className={`font-bold text-base ${getScoreColor(att.score, att.total_questions)}`}>
-                          {att.score != null ? att.score : '—'}
-                        </span>
-                        {att.total_questions > 0 && (
-                          <span className="text-secondaryText text-xs">/ {att.total_questions}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-1.5 text-secondaryText text-xs">
-                        <Calendar size={12} />
-                        {formatDate(att.attempted_at)}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attempted Tests');
+    XLSX.writeFile(wb, 'attempted_tests.xlsx');
+    setExportOpen(false);
+    showToast('Excel exported successfully', 'success');
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(16);
+    doc.text('Attempted Tests', 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${attempts.length} attempts`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [['#', 'User', 'Mobile', 'City', 'Test', 'Tag', 'Difficulty', 'Score', 'Total Qs', 'Attempted On']],
+      body: exportRows.map((r) => Object.values(r)),
+      styles: { fontSize: 7.5, cellPadding: 2.5 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 255] },
+    });
+    doc.save('attempted_tests.pdf');
+    setExportOpen(false);
+    showToast('PDF exported successfully', 'success');
+  };
+
+  const columns: Column<TestAttempt>[] = [
+    {
+      header: 'User',
+      accessorKey: 'user.full_name',
+      sortable: true,
+      cell: (att) => (
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-primaryBrand/10 flex items-center justify-center shrink-0">
+            <User size={14} className="text-primaryBrand" />
+          </div>
+          <div>
+            <p className="font-medium text-primaryText">{att.user?.full_name || '—'}</p>
+            <p className="text-xs text-secondaryText">{att.user?.mobile_number || '—'} &middot; {att.user?.city || '—'}</p>
           </div>
         </div>
+      )
+    },
+    {
+      header: 'Test',
+      accessorKey: 'test.title',
+      sortable: true,
+      cell: (att) => (
+        <div className="flex items-center gap-2">
+          <BookOpen size={14} className="text-secondaryText shrink-0" />
+          <p className="font-medium text-primaryText">{att.test?.title || '—'}</p>
+        </div>
+      )
+    },
+    {
+      header: 'Tag',
+      accessorKey: 'test.tag',
+      sortable: true,
+      cell: (att) => (
+        <span className="px-2 py-1 rounded-md bg-backgroundLight text-secondaryText text-xs font-medium">
+          {att.test?.tag || '—'}
+        </span>
+      )
+    },
+    {
+      header: 'Difficulty',
+      accessorKey: 'test.difficulty',
+      sortable: true,
+      cell: (att) => (
+        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${difficultyColors[att.test?.difficulty || ''] || 'bg-gray-100 text-gray-600'}`}>
+          {att.test?.difficulty || '—'}
+        </span>
+      )
+    },
+    {
+      header: 'Score',
+      accessorKey: 'score',
+      sortable: true,
+      cell: (att) => (
+        <div className="flex items-center gap-1.5">
+          <Trophy size={14} className={getScoreColor(att.score, att.total_questions)} />
+          <span className={`font-bold text-base ${getScoreColor(att.score, att.total_questions)}`}>
+            {att.score != null ? att.score : '—'}
+          </span>
+          {att.total_questions > 0 && (
+            <span className="text-secondaryText text-xs">/ {att.total_questions}</span>
+          )}
+        </div>
+      )
+    },
+    {
+      header: 'Attempted On',
+      accessorKey: 'attempted_at',
+      sortable: true,
+      cell: (att) => (
+        <div className="flex items-center gap-1.5 text-secondaryText text-xs">
+          <Calendar size={12} />
+          {formatDate(att.attempted_at)}
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primaryBrand/10 rounded-xl flex items-center justify-center">
+            <FileText className="text-primaryBrand" size={20} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-primaryText">Attempted Tests</h1>
+            <p className="text-sm text-secondaryText">All test attempts made by users</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
+            {attempts.length} Attempts
+          </div>
+
+          {/* Export */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
+            >
+              <Download size={16} />
+              Export
+              <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
+                  <FileText size={16} className="text-red-500" /> Export as PDF
+                </button>
+                <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
+                </button>
+                <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileDown size={16} className="text-blue-500" /> Export as CSV
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="bg-red-50 text-red-600 p-6 rounded-xl border border-red-200 text-center">{error}</div>
+      ) : (
+        <DataTable
+          data={attempts}
+          columns={columns}
+          searchPlaceholder="Search by user, test name or tag..."
+          searchableKeys={['user.full_name', 'test.title', 'test.tag', 'user.mobile_number']}
+          loading={loading}
+          emptyStateMessage="No test attempts found"
+          emptyStateIcon={<FileText size={36} className="text-border" />}
+        />
       )}
     </div>
   );

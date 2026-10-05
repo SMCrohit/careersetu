@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../context/ToastContext';
+import { DataTable, type Column } from '../components/DataTable';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Offer {
   id: string;
@@ -34,8 +38,22 @@ const Offers = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchOffers();
+  }, []);
+
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const fetchOffers = async () => {
@@ -102,64 +120,154 @@ const Offers = () => {
     }
   };
 
+  // ── Export helpers ─────────────────────────────────────────────────────────
+  const exportRows = offers.map((offer, i) => ({
+    '#': i + 1,
+    'Title': offer.title || '—',
+    'Subtitle': offer.subtitle || '—',
+    'Type': offer.type || '—',
+    'City': offer.city || 'All',
+    'Code': offer.discount_code || 'N/A',
+  }));
+
+  const exportToCSV = () => {
+    if (exportRows.length === 0) return;
+    const headers = Object.keys(exportRows[0]);
+    const rows = exportRows.map((r) => headers.map((h) => `"${(r as any)[h]}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'offers.csv'; a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+    showToast('CSV exported successfully', 'success');
+  };
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Offers');
+    XLSX.writeFile(wb, 'offers.xlsx');
+    setExportOpen(false);
+    showToast('Excel exported successfully', 'success');
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(16);
+    doc.text('Offers & Promotions', 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${offers.length} offers`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [['#', 'Title', 'Subtitle', 'Type', 'City', 'Code']],
+      body: exportRows.map((r) => Object.values(r)),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 255] },
+    });
+    doc.save('offers.pdf');
+    setExportOpen(false);
+    showToast('PDF exported successfully', 'success');
+  };
+
+  const columns: Column<Offer>[] = [
+    {
+      header: 'Title',
+      accessorKey: 'title',
+      sortable: true,
+      cell: (offer) => <span className="font-medium text-primaryBrand">{offer.title}</span>
+    },
+    {
+      header: 'Subtitle',
+      accessorKey: 'subtitle',
+      sortable: true,
+      cell: (offer) => <span className="text-primaryText">{offer.subtitle}</span>
+    },
+    {
+      header: 'Type',
+      accessorKey: 'type',
+      sortable: true,
+      cell: (offer) => <span className="px-2.5 py-1 bg-highlight/10 text-highlight rounded-full text-xs font-medium">{offer.type}</span>
+    },
+    {
+      header: 'City',
+      accessorKey: 'city',
+      sortable: true,
+      cell: (offer) => <span className="text-secondaryText">{offer.city || 'All'}</span>
+    },
+    {
+      header: 'Code',
+      accessorKey: 'discount_code',
+      sortable: true,
+      cell: (offer) => <span className="text-secondaryText font-mono">{offer.discount_code || 'N/A'}</span>
+    },
+    {
+      header: 'Actions',
+      cell: (offer) => (
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={() => openEditModal(offer)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
+          <button onClick={() => { setItemToDelete(offer.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
+        </div>
+      )
+    }
+  ];
+
   return (
     <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-primaryText">Offers & Promotions</h1>
           <p className="text-secondaryText">Manage platform discounts and partner offers.</p>
         </div>
-        <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
-          <Plus size={18} /> Add Offer
-        </button>
+        
+        <div className="flex items-center gap-3">
+          <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
+            {offers.length} Offers
+          </div>
+
+          {/* Export */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
+            >
+              <Download size={16} />
+              Export
+              <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
+                  <FileText size={16} className="text-red-500" /> Export as PDF
+                </button>
+                <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
+                </button>
+                <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileDown size={16} className="text-blue-500" /> Export as CSV
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
+            <Plus size={18} /> Add Offer
+          </button>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="p-4 border-b border-border flex justify-between items-center bg-gray-50/50">
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-2.5 text-borderDark" size={18} />
-            <input type="text" placeholder="Search offers..." className="input-field pl-10 bg-white" />
-          </div>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-border text-sm text-secondaryText">
-                <th className="p-4 font-medium">Title</th>
-                <th className="p-4 font-medium">Subtitle</th>
-                <th className="p-4 font-medium">Type</th>
-                <th className="p-4 font-medium">City</th>
-                <th className="p-4 font-medium">Code</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">Loading offers...</td></tr>
-              ) : offers.length === 0 ? (
-                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">No offers found.</td></tr>
-              ) : (
-                offers.map((offer) => (
-                  <tr key={offer.id} className="border-b border-border hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4 font-medium text-primaryBrand">{offer.title}</td>
-                    <td className="p-4 text-primaryText">{offer.subtitle}</td>
-                    <td className="p-4"><span className="px-2.5 py-1 bg-highlight/10 text-highlight rounded-full text-xs font-medium">{offer.type}</span></td>
-                    <td className="p-4 text-secondaryText">{offer.city || 'All'}</td>
-                    <td className="p-4 text-secondaryText font-mono">{offer.discount_code || 'N/A'}</td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <button onClick={() => openEditModal(offer)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
-                        <button onClick={() => { setItemToDelete(offer.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        data={offers}
+        columns={columns}
+        searchPlaceholder="Search offers..."
+        searchableKeys={['title', 'subtitle', 'type', 'city']}
+        loading={loading}
+        emptyStateMessage="No offers found."
+        emptyStateIcon={<Tag size={36} className="text-border" />}
+      />
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Edit Offer" : "Add New Offer"}>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -201,8 +309,8 @@ const Offers = () => {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-secondaryText mb-1">Description / Details</label>
-            <textarea required rows={3} className="input-field" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Zero processing fee..."></textarea>
+            <label className="block text-sm font-medium text-secondaryText mb-1">Description</label>
+            <textarea required rows={4} className="input-field" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})}></textarea>
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-secondaryText hover:text-primaryText font-medium">Cancel</button>
@@ -216,7 +324,7 @@ const Offers = () => {
         onClose={() => setDeleteDialogOpen(false)} 
         onConfirm={confirmDelete} 
         title="Delete Offer" 
-        message="Are you sure you want to permanently delete this offer? This action cannot be undone." 
+        message="Are you sure you want to delete this offer? This action cannot be undone." 
       />
     </div>
   );

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, Search, ChevronLeft, ChevronRight, Download, ChevronDown, FileText, FileSpreadsheet, FileDown } from 'lucide-react';
+import { Plus, Edit2, Trash2, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Briefcase } from 'lucide-react';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../context/ToastContext';
+import { DataTable, type Column } from '../components/DataTable';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -29,16 +30,10 @@ const defaultFormData = {
   experience: '0-1 Years', profession: 'Professional'
 };
 
-const PAGE_SIZE_OPTIONS = [10, 50, 100];
-
 const Jobs = () => {
   const { showToast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  const [search, setSearch] = useState('');
-  const [pageSize, setPageSize] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,32 +71,8 @@ const Jobs = () => {
     }
   };
 
-  // Filtered list
-  const filtered = jobs.filter(
-    (j) =>
-      j.title?.toLowerCase().includes(search.toLowerCase()) ||
-      j.company?.toLowerCase().includes(search.toLowerCase()) ||
-      j.location?.toLowerCase().includes(search.toLowerCase()) ||
-      j.type?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
-  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-
-  const handleSearchChange = (val: string) => {
-    setSearch(val);
-    setCurrentPage(1);
-  };
-
-  const handlePageSizeChange = (val: number) => {
-    setPageSize(val);
-    setCurrentPage(1);
-  };
-
   // ─── Export helpers ────────────────────────────────────────────────────────
-  const exportRows = filtered.map((j, i) => ({
+  const exportRows = jobs.map((j, i) => ({
     '#': i + 1,
     Title: j.title || '—',
     Company: j.company || '—',
@@ -142,7 +113,7 @@ const Jobs = () => {
     doc.text('Jobs Directory', 14, 15);
     doc.setFontSize(10);
     doc.setTextColor(100);
-    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${filtered.length} jobs`, 14, 22);
+    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${jobs.length} jobs`, 14, 22);
 
     autoTable(doc, {
       startY: 28,
@@ -157,7 +128,6 @@ const Jobs = () => {
     setExportOpen(false);
     showToast('PDF exported successfully', 'success');
   };
-
 
   const confirmDelete = async () => {
     if (!itemToDelete) return;
@@ -216,19 +186,47 @@ const Jobs = () => {
     }
   };
 
-  const getPageNumbers = () => {
-    const pages: (number | '...')[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (safePage > 3) pages.push('...');
-      for (let i = Math.max(2, safePage - 1); i <= Math.min(totalPages - 1, safePage + 1); i++) pages.push(i);
-      if (safePage < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
+  const columns: Column<Job>[] = [
+    {
+      header: 'Job Title',
+      accessorKey: 'title',
+      sortable: true,
+      cell: (job) => <span className="font-medium text-primaryBrand">{job.title}</span>
+    },
+    {
+      header: 'Company',
+      accessorKey: 'company',
+      sortable: true,
+      cell: (job) => <span className="text-primaryText">{job.company}</span>
+    },
+    {
+      header: 'Location',
+      accessorKey: 'location',
+      sortable: true,
+      cell: (job) => <span className="text-secondaryText">{job.location}</span>
+    },
+    {
+      header: 'Type',
+      accessorKey: 'type',
+      sortable: true,
+      cell: (job) => <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium border border-gray-200">{job.type}</span>
+    },
+    {
+      header: 'Level',
+      accessorKey: 'level',
+      sortable: true,
+      cell: (job) => <span className="text-secondaryText">{job.level}</span>
+    },
+    {
+      header: 'Actions',
+      cell: (job) => (
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={() => openEditModal(job)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
+          <button onClick={() => { setItemToDelete(job.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
+        </div>
+      )
     }
-    return pages;
-  };
+  ];
 
   return (
     <div className="animate-fade-in">
@@ -282,128 +280,15 @@ const Jobs = () => {
         </div>
       </div>
 
-      <div className="card">
-        <div className="p-4 border-b border-border flex flex-wrap justify-between items-center gap-3 bg-gray-50/50">
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-2.5 text-borderDark" size={18} />
-            <input 
-              type="text" 
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search by title, company, location…" 
-              className="input-field pl-10 bg-white w-full" 
-            />
-          </div>
-          <span className="text-sm font-medium text-secondaryText">
-            {filtered.length} {filtered.length === 1 ? 'job' : 'jobs'}
-          </span>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-border text-sm text-secondaryText">
-                <th className="p-4 font-medium">Job Title</th>
-                <th className="p-4 font-medium">Company</th>
-                <th className="p-4 font-medium">Location</th>
-                <th className="p-4 font-medium">Type</th>
-                <th className="p-4 font-medium">Level</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">Loading jobs...</td></tr>
-              ) : paginated.length === 0 ? (
-                <tr><td colSpan={6} className="text-center p-8 text-secondaryText">No jobs found.</td></tr>
-              ) : (
-                paginated.map((job) => (
-                  <tr key={job.id} className="border-b border-border hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4 font-medium text-primaryBrand">{job.title}</td>
-                    <td className="p-4 text-primaryText">{job.company}</td>
-                    <td className="p-4 text-secondaryText">{job.location}</td>
-                    <td className="p-4"><span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium border border-gray-200">{job.type}</span></td>
-                    <td className="p-4 text-secondaryText">{job.level}</td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <button onClick={() => openEditModal(job)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
-                        <button onClick={() => { setItemToDelete(job.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Pagination ── */}
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-4 border-t border-border flex flex-wrap items-center justify-between gap-3 bg-gray-50/30">
-            <p className="text-sm text-secondaryText">
-              Showing{' '}
-              <span className="font-semibold text-primaryText">
-                {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)}
-              </span>{' '}
-              of{' '}
-              <span className="font-semibold text-primaryText">{filtered.length}</span> jobs
-            </p>
-
-            {/* Page size */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-secondaryText">Show</span>
-              <select
-                value={pageSize}
-                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                className="px-3 py-1.5 rounded-lg border border-border bg-white text-sm text-primaryText focus:outline-none focus:ring-2 focus:ring-primaryBrand/30"
-              >
-                {PAGE_SIZE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s} items</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {/* Previous */}
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-secondaryText hover:bg-backgroundLight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft size={16} /> Prev
-              </button>
-
-              {/* Page numbers */}
-              {getPageNumbers().map((pg, i) =>
-                pg === '...' ? (
-                  <span key={`ellipsis-${i}`} className="px-2 text-secondaryText select-none">…</span>
-                ) : (
-                  <button
-                    key={pg}
-                    onClick={() => setCurrentPage(pg as number)}
-                    className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
-                      pg === safePage
-                        ? 'bg-primaryBrand text-white shadow-sm'
-                        : 'border border-border text-secondaryText hover:bg-backgroundLight'
-                    }`}
-                  >
-                    {pg}
-                  </button>
-                )
-              )}
-
-              {/* Next */}
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-secondaryText hover:bg-backgroundLight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <DataTable
+        data={jobs}
+        columns={columns}
+        searchPlaceholder="Search by title, company, location…"
+        searchableKeys={['title', 'company', 'location', 'type']}
+        loading={loading}
+        emptyStateMessage="No jobs found."
+        emptyStateIcon={<Briefcase size={36} className="text-border" />}
+      />
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Edit Job" : "Add New Job"}>
         <form onSubmit={handleSubmit} className="space-y-4">

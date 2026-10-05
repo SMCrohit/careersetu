@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
-import { Plus, Edit2, Trash2, Search, Info } from 'lucide-react';
+import { Plus, Edit2, Trash2, Info, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Image } from 'lucide-react';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../context/ToastContext';
 import ReactCrop, { type Crop, type PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import { DataTable, type Column } from '../components/DataTable';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Banner {
   id: string;
@@ -35,8 +39,22 @@ const Banners = () => {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
 
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchBanners();
+  }, []);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const fetchBanners = async () => {
@@ -178,62 +196,139 @@ const Banners = () => {
     }
   };
 
+  // ── Export helpers ─────────────────────────────────────────────────────────
+  const exportRows = banners.map((banner, i) => ({
+    '#': i + 1,
+    'Banner Image URL': banner.image_url || '—',
+    'Link URL': banner.link_url || '—',
+  }));
+
+  const exportToCSV = () => {
+    if (exportRows.length === 0) return;
+    const headers = Object.keys(exportRows[0]);
+    const rows = exportRows.map((r) => headers.map((h) => `"${(r as any)[h]}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'banners.csv'; a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+    showToast('CSV exported successfully', 'success');
+  };
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Banners');
+    XLSX.writeFile(wb, 'banners.xlsx');
+    setExportOpen(false);
+    showToast('Excel exported successfully', 'success');
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text('Marketing Banners', 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Exported on ${new Date().toLocaleDateString('en-IN')} · Total: ${banners.length} banners`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [['#', 'Banner Image URL', 'Link URL']],
+      body: exportRows.map((r) => Object.values(r)),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 248, 255] },
+    });
+    doc.save('banners.pdf');
+    setExportOpen(false);
+    showToast('PDF exported successfully', 'success');
+  };
+
+  const columns: Column<Banner>[] = [
+    {
+      header: 'Preview',
+      cell: (banner) => (
+        <div className="w-24 h-12 bg-gray-200 rounded overflow-hidden shrink-0">
+          <img src={banner.image_url} alt="Banner" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+        </div>
+      )
+    },
+    {
+      header: 'Link URL',
+      accessorKey: 'link_url', // enable search
+      sortable: true,
+      cell: (banner) => (
+        <a href={banner.link_url} target="_blank" rel="noreferrer" className="text-primaryBrand hover:underline truncate max-w-xs block">
+          {banner.link_url}
+        </a>
+      )
+    },
+    {
+      header: 'Actions',
+      cell: (banner) => (
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={() => openEditModal(banner)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
+          <button onClick={() => { setItemToDelete(banner.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
+        </div>
+      )
+    }
+  ];
+
   return (
     <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-primaryText">Marketing Banners</h1>
           <p className="text-secondaryText">Manage banners shown on the mobile app home screen.</p>
         </div>
-        <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
-          <Plus size={18} /> Add Banner
-        </button>
+        
+        <div className="flex items-center gap-3">
+          <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
+            {banners.length} Banners
+          </div>
+
+          {/* Export */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
+            >
+              <Download size={16} />
+              Export
+              <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
+                  <FileText size={16} className="text-red-500" /> Export as PDF
+                </button>
+                <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
+                </button>
+                <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                  <FileDown size={16} className="text-blue-500" /> Export as CSV
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
+            <Plus size={18} /> Add Banner
+          </button>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="p-4 border-b border-border flex justify-between items-center bg-gray-50/50">
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-2.5 text-borderDark" size={18} />
-            <input type="text" placeholder="Search banners..." className="input-field pl-10 bg-white" />
-          </div>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-border text-sm text-secondaryText">
-                <th className="p-4 font-medium w-32">Preview</th>
-                <th className="p-4 font-medium">Link URL</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={3} className="text-center p-8 text-secondaryText">Loading banners...</td></tr>
-              ) : banners.length === 0 ? (
-                <tr><td colSpan={3} className="text-center p-8 text-secondaryText">No banners found.</td></tr>
-              ) : (
-                banners.map((banner) => (
-                  <tr key={banner.id} className="border-b border-border hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4">
-                      <div className="w-24 h-12 bg-gray-200 rounded overflow-hidden">
-                        <img src={banner.image_url} alt="Banner" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                      </div>
-                    </td>
-                    <td className="p-4 text-primaryText truncate max-w-xs"><a href={banner.link_url} target="_blank" rel="noreferrer" className="text-primaryBrand hover:underline">{banner.link_url}</a></td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <button onClick={() => openEditModal(banner)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
-                        <button onClick={() => { setItemToDelete(banner.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        data={banners}
+        columns={columns}
+        searchPlaceholder="Search banners by URL..."
+        searchableKeys={['link_url']}
+        loading={loading}
+        emptyStateMessage="No banners found."
+        emptyStateIcon={<Image size={36} className="text-border" />}
+      />
 
       <Modal isOpen={isModalOpen} onClose={handleCancelModal} title={editingId ? "Edit Banner" : "Add New Banner"}>
         <div className="bg-blue-50 text-blue-800 p-3 rounded-lg mb-4 flex items-start gap-2 text-sm border border-blue-100">

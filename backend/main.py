@@ -949,15 +949,51 @@ def get_activity_logs(db: Session = Depends(get_db), admin: str = Depends(auth.g
 # Dashboard Stats
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    total_users = db.query(models.User).filter(models.User.is_active == True).count()
-    active_jobs = db.query(models.Job).filter(models.Job.is_active == True).count()
-    tests_taken = db.query(models.TestAttempt).count()
-    appointments = db.query(models.ProfessionalAppointment).count()
+    today = date.today()
+    from sqlalchemy import extract
+    from datetime import datetime, time
+
+    start_date = None
+    if filter == "Today":
+        start_date = datetime.combine(today, time.min)
+    elif filter == "Yesterday":
+        start_date = datetime.combine(today - timedelta(days=1), time.min)
+    elif filter == "This Week":
+        start_date = datetime.combine(today - timedelta(days=6), time.min)
+    elif filter == "This Month":
+        start_date = datetime.combine(today - timedelta(days=29), time.min)
+    elif filter == "This Year":
+        start_date = datetime.combine(today.replace(month=1, day=1), time.min)
+
+    # Base queries
+    users_q = db.query(models.User).filter(models.User.is_active == True)
+    jobs_q = db.query(models.Job).filter(models.Job.is_active == True)
+    tests_q = db.query(models.TestAttempt)
+    appts_q = db.query(models.ProfessionalAppointment)
+
+    # Apply date filters if not "All Time"
+    if start_date:
+        users_q = users_q.filter(models.User.created_datetime >= start_date)
+        jobs_q = jobs_q.filter(models.Job.created_datetime >= start_date)
+        tests_q = tests_q.filter(models.TestAttempt.created_datetime >= start_date)
+        # Assuming appointments have created_datetime, otherwise we filter by appointment_date string (harder)
+        # We will use created_datetime for appointments if it exists in BaseModel
+        appts_q = appts_q.filter(models.ProfessionalAppointment.created_datetime >= start_date)
+
+    if filter == "Yesterday":
+        end_date = datetime.combine(today, time.min)
+        users_q = users_q.filter(models.User.created_datetime < end_date)
+        jobs_q = jobs_q.filter(models.Job.created_datetime < end_date)
+        tests_q = tests_q.filter(models.TestAttempt.created_datetime < end_date)
+        appts_q = appts_q.filter(models.ProfessionalAppointment.created_datetime < end_date)
+
+    total_users = users_q.count()
+    active_jobs = jobs_q.count()
+    tests_taken = tests_q.count()
+    appointments = appts_q.count()
     
     # Generate chart data based on filter
     chart_data = []
-    today = date.today()
-    from sqlalchemy import extract
     
     if filter in ["Today", "Yesterday", "This Week"]:
         for i in range(6, -1, -1):
@@ -1007,6 +1043,51 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
             jobs_count = db.query(models.Job).filter(extract('year', models.Job.created_datetime) == y, models.Job.is_active == True).count()
             chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
 
+    # B2B Insights & Additional Chart Data
+    
+    # 1. Users by City
+    city_data = db.query(
+        models.User.city, 
+        func.count(models.User.id).label("count")
+    ).filter(models.User.is_active == True)
+    if start_date:
+        city_data = city_data.filter(models.User.created_datetime >= start_date)
+    city_data = city_data.group_by(models.User.city).all()
+    users_by_city = [{"name": c[0] or "Unknown", "value": c[1]} for c in city_data]
+
+    # 2. Users by Goal
+    goal_data = db.query(
+        models.User.goal, 
+        func.count(models.User.id).label("count")
+    ).filter(models.User.is_active == True)
+    if start_date:
+        goal_data = goal_data.filter(models.User.created_datetime >= start_date)
+    goal_data = goal_data.group_by(models.User.goal).all()
+    users_by_goal = [{"name": g[0] or "Unknown", "value": g[1]} for g in goal_data]
+
+    # 3. Job Application Statuses
+    job_apps_data = db.query(
+        models.JobApplication.status, 
+        func.count(models.JobApplication.id).label("count")
+    )
+    if start_date:
+        job_apps_data = job_apps_data.filter(models.JobApplication.created_datetime >= start_date)
+    job_apps_data = job_apps_data.group_by(models.JobApplication.status).all()
+    job_applications_status = [{"name": j[0] or "Pending", "value": j[1]} for j in job_apps_data]
+
+    # 4. Professional Consultations (Demand)
+    # Join ProfessionalAppointment with Professional to group by Profession
+    prof_demand_data = db.query(
+        models.Professional.profession,
+        func.count(models.ProfessionalAppointment.id).label("count")
+    ).join(
+        models.ProfessionalAppointment, models.Professional.id == models.ProfessionalAppointment.professional_id
+    )
+    if start_date:
+        prof_demand_data = prof_demand_data.filter(models.ProfessionalAppointment.created_datetime >= start_date)
+    prof_demand_data = prof_demand_data.group_by(models.Professional.profession).all()
+    appointments_by_profession = [{"name": p[0] or "Unknown", "value": p[1]} for p in prof_demand_data]
+
     return {
         "totals": {
             "users": total_users,
@@ -1014,7 +1095,11 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
             "tests": tests_taken,
             "appointments": appointments
         },
-        "chart_data": chart_data
+        "chart_data": chart_data,
+        "users_by_city": users_by_city,
+        "users_by_goal": users_by_goal,
+        "job_applications_status": job_applications_status,
+        "appointments_by_profession": appointments_by_profession
     }
 
 # --- Admin Appointments Management ---
