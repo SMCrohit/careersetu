@@ -98,7 +98,7 @@ const Dashboard = () => {
              <ResponsiveContainer width="100%" height="100%">
                <PieChart>
                  <Pie data={stats.users_by_city} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
-                   {stats.users_by_city.map((entry: any, index: number) => (
+                   {stats.users_by_city.map((_: any, index: number) => (
                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                    ))}
                  </Pie>
@@ -118,7 +118,7 @@ const Dashboard = () => {
              <ResponsiveContainer width="100%" height="100%">
                <PieChart>
                  <Pie data={stats.users_by_goal} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
-                   {stats.users_by_goal.map((entry: any, index: number) => (
+                   {stats.users_by_goal.map((_: any, index: number) => (
                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                    ))}
                  </Pie>
@@ -138,7 +138,7 @@ const Dashboard = () => {
              <ResponsiveContainer width="100%" height="100%">
                <PieChart>
                  <Pie data={stats.job_applications_status} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100} label>
-                   {stats.job_applications_status.map((entry: any, index: number) => (
+                   {stats.job_applications_status.map((_: any, index: number) => (
                      <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
                    ))}
                  </Pie>
@@ -158,7 +158,7 @@ const Dashboard = () => {
              <ResponsiveContainer width="100%" height="100%">
                <PieChart>
                  <Pie data={stats.appointments_by_profession} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100} label>
-                   {stats.appointments_by_profession.map((entry: any, index: number) => (
+                   {stats.appointments_by_profession.map((_: any, index: number) => (
                      <Cell key={`cell-${index}`} fill={COLORS[(index + 4) % COLORS.length]} />
                    ))}
                  </Pie>
