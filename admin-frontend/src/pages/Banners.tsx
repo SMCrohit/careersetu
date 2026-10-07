@@ -21,7 +21,7 @@ const defaultFormData = {
   image_url: '', link_url: ''
 };
 
-const Banners = () => {
+const Banners = ({ isSettingsTab = false }: { isSettingsTab?: boolean }) => {
   const { showToast } = useToast();
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
@@ -268,7 +268,7 @@ const Banners = () => {
     {
       header: 'Actions',
       cell: (banner) => (
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end gap-3" onClick={e => e.stopPropagation()}>
           <button onClick={() => openEditModal(banner)} className="text-secondaryText hover:text-primaryBrand transition-colors"><Edit2 size={16} /></button>
           <button onClick={() => { setItemToDelete(banner.id); setDeleteDialogOpen(true); }} className="text-secondaryText hover:text-error transition-colors"><Trash2 size={16} /></button>
         </div>
@@ -278,41 +278,49 @@ const Banners = () => {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-primaryText">Marketing Banners</h1>
-          <p className="text-secondaryText">Manage banners shown on the mobile app home screen.</p>
-        </div>
+      <div className={`flex flex-wrap items-center justify-between gap-4 ${isSettingsTab ? 'mb-4' : 'mb-8'}`}>
+        {isSettingsTab ? (
+          <h2 className="text-xl font-semibold text-primaryText">Home Banners</h2>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-bold text-primaryText">Marketing Banners</h1>
+            <p className="text-secondaryText">Manage banners shown on the mobile app home screen.</p>
+          </div>
+        )}
         
         <div className="flex items-center gap-3">
-          <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
-            {banners.length} Banners
-          </div>
-
-          {/* Export */}
-          <div className="relative" ref={exportRef}>
-            <button
-              onClick={() => setExportOpen((o) => !o)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
-            >
-              <Download size={16} />
-              Export
-              <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {exportOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
-                <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
-                  <FileText size={16} className="text-red-500" /> Export as PDF
-                </button>
-                <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
-                  <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
-                </button>
-                <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
-                  <FileDown size={16} className="text-blue-500" /> Export as CSV
-                </button>
+          {!isSettingsTab && (
+            <>
+              <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
+                {banners.length} Banners
               </div>
-            )}
-          </div>
+
+              {/* Export */}
+              <div className="relative" ref={exportRef}>
+                <button
+                  onClick={() => setExportOpen((o) => !o)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primaryBrand text-white rounded-xl text-sm font-semibold hover:bg-primaryBrand/90 transition-colors shadow-sm"
+                >
+                  <Download size={16} />
+                  Export
+                  <ChevronDown size={14} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {exportOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                    <button onClick={exportToPDF} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors">
+                      <FileText size={16} className="text-red-500" /> Export as PDF
+                    </button>
+                    <button onClick={exportToExcel} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                      <FileSpreadsheet size={16} className="text-green-600" /> Export as Excel
+                    </button>
+                    <button onClick={exportToCSV} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-primaryText hover:bg-backgroundLight transition-colors border-t border-border">
+                      <FileDown size={16} className="text-blue-500" /> Export as CSV
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
             <Plus size={18} /> Add Banner
@@ -320,15 +328,43 @@ const Banners = () => {
         </div>
       </div>
 
-      <DataTable
-        data={banners}
-        columns={columns}
-        searchPlaceholder="Search banners by URL..."
-        searchableKeys={['link_url']}
-        loading={loading}
-        emptyStateMessage="No banners found."
-        emptyStateIcon={<Image size={36} className="text-border" />}
-      />
+      {isSettingsTab ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {banners.map((banner) => (
+            <div key={banner.id} className="card p-4 flex flex-col gap-3 group relative overflow-hidden">
+              <div className="w-full aspect-[2/1] bg-gray-100 rounded overflow-hidden">
+                <img src={banner.image_url} alt="Banner" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+              </div>
+              <a href={banner.link_url} target="_blank" rel="noreferrer" className="text-xs text-primaryBrand hover:underline truncate block">
+                {banner.link_url}
+              </a>
+              <button 
+                onClick={() => { setItemToDelete(banner.id); setDeleteDialogOpen(true); }}
+                className="absolute top-2 right-2 bg-white text-error opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-error/10 rounded-full shadow-sm border border-gray-100"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+          {banners.length === 0 && !loading && (
+            <div className="col-span-full py-12 text-center text-secondaryText flex flex-col items-center">
+              <Image size={36} className="text-border mb-3" />
+              <p>No banners found.</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <DataTable
+          data={banners}
+          columns={columns}
+          searchPlaceholder="Search banners by URL..."
+          searchableKeys={['link_url']}
+          loading={loading}
+          emptyStateMessage="No banners found."
+          emptyStateIcon={<Image size={36} className="text-border" />}
+          onRowClick={openEditModal}
+        />
+      )}
 
       <Modal isOpen={isModalOpen} onClose={handleCancelModal} title={editingId ? "Edit Banner" : "Add New Banner"}>
         <div className="bg-blue-50 text-blue-800 p-3 rounded-lg mb-4 flex items-start gap-2 text-sm border border-blue-100">

@@ -11,6 +11,7 @@ import Banners from './pages/Banners';
 import Notifications from './pages/Notifications';
 import Users from './pages/Users';
 import UserProfile from './pages/UserProfile';
+import Settings from './pages/Settings';
 import ActivityLogs from './pages/ActivityLogs';
 import Appointments from './pages/Appointments';
 import AppliedJobs from './pages/AppliedJobs';
@@ -23,9 +24,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('adminToken');
   if (!token) return <Navigate to="/login" replace />;
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background" style={{ overflow: 'hidden' }}>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-8 bg-background">
+      <main className="flex-1 overflow-y-auto p-8 bg-background" style={{ minWidth: 0 }}>
         {children}
       </main>
     </div>
@@ -54,6 +55,7 @@ function App() {
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
           <Route path="/users/:id" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><ActivityLogs /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         </Routes>
       </Router>
     </ToastProvider>

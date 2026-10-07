@@ -53,21 +53,7 @@ try:
         alembic.config.main(argv=alembicArgs)
     finally:
         os.chdir(original_cwd)
-    # Initialize default admin user if none exists
-    db = next(get_db())
-    if db.query(models.AdminUser).count() == 0:
-        admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD")
-        if not admin_password:
-            print("WARNING: DEFAULT_ADMIN_PASSWORD environment variable is missing.")
-        else:
-            default_admin = models.AdminUser(
-                username="admin",
-                password_hash=auth.get_password_hash(admin_password),
-                role="admin"
-            )
-            db.add(default_admin)
-            db.commit()
-    db.close()
+    # Database initialization is now handled externally/via migrations
 except Exception as e:
     print(f"CRITICAL ERROR INITIALIZING DATABASE ON STARTUP: {e}")
 
@@ -94,23 +80,6 @@ async def global_exception_handler(request, exc):
     )
 
 # Static files for uploads
-@app.post("/api/admin/login")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    admin_user = db.query(models.AdminUser).filter(models.AdminUser.username == form_data.username).first()
-    if not admin_user or not auth.verify_password(form_data.password, admin_user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if not admin_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
-
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = auth.create_access_token(
-        data={"sub": admin_user.username, "role": admin_user.role}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
 
 # User Auth Endpoints
 @app.post("/api/auth/request-otp")
@@ -157,42 +126,64 @@ def signup(req: schemas.UserBase, db: Session = Depends(get_db)):
 def firebase_login(req: schemas.FirebaseLoginRequest, db: Session = Depends(get_db)):
     try:
         decoded_token = firebase_auth.verify_id_token(req.id_token)
+        uid = decoded_token.get("uid")
         phone_number = decoded_token.get('phone_number')
-        if not phone_number:
-            raise HTTPException(status_code=400, detail="No phone number found in token")
+        email = decoded_token.get('email')
             
-        # Standardize phone number format (remove +91 if needed, or keep it depending on DB)
-        # Firebase format: +919876543210. The frontend sends mobile_number as 9876543210.
-        formatted_number = phone_number.replace("+91", "")
-            
-        user = db.query(models.User).filter(models.User.mobile_number == formatted_number, models.User.is_active == True).first()
+        user = db.query(models.User).filter(
+            (models.User.firebase_uid == uid) | 
+            (models.User.email == email) | 
+            (models.User.mobile_number == (phone_number.replace("+91", "") if phone_number else None))
+        ).first()
+
         if not user:
-            raise HTTPException(status_code=404, detail="User not found. Please sign up.")
+            raise HTTPException(status_code=404, detail="User account not found. Please sign up first.")
+            
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact support.")
+            
+        if not user.firebase_uid:
+            user.firebase_uid = uid
+            db.commit()
             
         access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = auth.create_access_token(
-            data={"sub": user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+            data={"sub": user.mobile_number or user.email, "role": user.role}, expires_delta=access_token_expires
         )
-        return {"access_token": access_token, "token_type": "bearer", "user": user}
+        return {"access_token": access_token, "token_type": "bearer", "user": user, "message": "Login successful"}
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid Firebase Token: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 @app.post("/api/auth/firebase-signup", response_model=schemas.TokenResponse)
 def firebase_signup(req: schemas.FirebaseSignupRequest, db: Session = Depends(get_db)):
     try:
         decoded_token = firebase_auth.verify_id_token(req.id_token)
+        uid = decoded_token.get("uid")
         phone_number = decoded_token.get('phone_number')
-        if not phone_number:
-            raise HTTPException(status_code=400, detail="No phone number found in token")
+        email = decoded_token.get('email')
             
-        formatted_number = phone_number.replace("+91", "")
+        formatted_number = phone_number.replace("+91", "") if phone_number else None
         
-        # Override the user's provided number with the verified one
-        req.user_details.mobile_number = formatted_number
+        # Override the user's provided data with the verified one from Firebase
+        if formatted_number:
+            req.user_details.mobile_number = formatted_number
+        if email:
+            req.user_details.email = email
+            
+        req.user_details.firebase_uid = uid
         
-        existing_user = db.query(models.User).filter(models.User.mobile_number == formatted_number).first()
+        existing_user = db.query(models.User).filter(
+            (models.User.firebase_uid == uid) |
+            (models.User.mobile_number == formatted_number) |
+            (models.User.email == email)
+        ).first()
+        
         if existing_user:
-            raise HTTPException(status_code=400, detail="Mobile number already registered")
+            raise HTTPException(status_code=400, detail="An account with this mobile number or email is already registered.")
             
         db_user = models.User(**req.user_details.model_dump())
         db.add(db_user)
@@ -201,11 +192,15 @@ def firebase_signup(req: schemas.FirebaseSignupRequest, db: Session = Depends(ge
         
         access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = auth.create_access_token(
-            data={"sub": db_user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+            data={"sub": db_user.mobile_number or db_user.email, "role": db_user.role}, expires_delta=access_token_expires
         )
-        return {"access_token": access_token, "token_type": "bearer", "user": db_user}
+        return {"access_token": access_token, "token_type": "bearer", "user": db_user, "message": "Account created successfully"}
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid Firebase Token: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=401, detail=f"Registration failed: {str(e)}")
 
 # Banners API
 @app.get("/api/banners", response_model=list[schemas.Banner])
@@ -245,29 +240,284 @@ def delete_banner(banner_id: str, db: Session = Depends(get_db), admin: str = De
     auth.log_admin_action(db, admin, "DELETE", "Banners", banner_id)
     return {"status": "success"}
 
-@app.get("/api/jobs", response_model=list[schemas.Job])
-def get_jobs(db: Session = Depends(get_db)):
-    return db.query(models.Job).filter(models.Job.is_active == True).all()
+
+
+@app.get("/api/jobs/companies")
+def get_all_companies(db: Session = Depends(get_db)):
+    companies = db.query(models.Job.company_name).distinct().all()
+    return [c[0] for c in companies if c[0]]
+
+@app.get("/api/job-applications")
+def get_all_job_applications(
+    status: str = None,
+    company_name: str = None,
+    applied_start: str = None,
+    applied_end: str = None,
+    min_match: int = None,
+    max_match: int = None,
+    search: str = None,
+    page: int = 1,
+    limit: int = 10,
+    db: Session = Depends(get_db), 
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.JobApplication)
+    
+    if status:
+        query = query.filter(models.JobApplication.status == status)
+    
+    if min_match is not None:
+        query = query.filter(models.JobApplication.ai_match_score >= min_match)
+    if max_match is not None:
+        query = query.filter(models.JobApplication.ai_match_score <= max_match)
+        
+    if applied_start:
+        from datetime import datetime
+        try:
+            start_dt = datetime.strptime(applied_start, "%Y-%m-%d")
+            query = query.filter(models.JobApplication.created_datetime >= start_dt)
+        except ValueError:
+            pass
+            
+    if applied_end:
+        from datetime import datetime
+        try:
+            end_dt = datetime.strptime(applied_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            query = query.filter(models.JobApplication.created_datetime <= end_dt)
+        except ValueError:
+            pass
+            
+    if company_name:
+        query = query.join(models.Job).filter(models.Job.company_name == company_name)
+
+    # Search by applicant name, email, or job title via joins
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(models.StudentProfile, models.JobApplication.student_profile_id == models.StudentProfile.id, isouter=True)\
+                     .join(models.User, models.StudentProfile.user_id == models.User.id, isouter=True)\
+                     .join(models.Job, models.JobApplication.job_id == models.Job.id, isouter=True)\
+                     .filter(
+                         (models.User.full_name.ilike(search_term)) |
+                         (models.User.email.ilike(search_term)) |
+                         (models.Job.title.ilike(search_term))
+                     )
+        
+    total = query.count()
+    applications = query.order_by(models.JobApplication.created_datetime.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    results = []
+    for app in applications:
+        job = app.job
+        sp = app.student_profile
+        user = sp.user if sp else None
+        
+        results.append({
+            "id": str(app.id),
+            "applicant": {
+                "full_name": user.full_name if user else "Unknown",
+                "email": user.email if user else None,
+                "mobile_number": user.mobile_number if user else None,
+            },
+            "job": {
+                "title": job.title if job else "Unknown",
+                "company_name": job.company_name if job else "Unknown",
+                "application_routing_mode": job.application_routing_mode if job else "manual_review"
+            },
+            "status": app.status,
+            "applied_datetime": app.created_datetime.isoformat() if hasattr(app, 'created_datetime') and app.created_datetime else None,
+            "resume_snapshot_url": app.resume_snapshot_url,
+            "cover_letter": app.cover_letter,
+            "screening_responses": app.screening_responses,
+            "ai_match_score": app.ai_match_score,
+            "notes_by_admin": app.notes_by_admin,
+            "employer_feedback": app.employer_feedback,
+            "interview_datetime": app.interview_datetime.isoformat() if app.interview_datetime else None
+        })
+    
+    return {"data": results, "total": total}
+
+@app.put("/api/job-applications/{app_id}")
+def update_job_application(app_id: str, data: dict, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    app = db.query(models.JobApplication).filter(models.JobApplication.id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    if "status" in data:
+        app.status = data["status"]
+    if "notes_by_admin" in data:
+        app.notes_by_admin = data["notes_by_admin"]
+    if "interview_datetime" in data:
+        from datetime import datetime
+        app.interview_datetime = datetime.fromisoformat(data["interview_datetime"]) if data["interview_datetime"] else None
+        
+    db.commit()
+    auth.log_admin_action(db, admin, "UPDATE", "JobApplication", app_id, {"status": app.status})
+    return {"status": "success"}
+
+@app.get("/api/jobs")
+def get_jobs(
+    status: str = None, 
+    type: str = None, 
+    city: str = None, 
+    min_salary: int = None, 
+    max_salary: int = None,
+    experience: str = None,
+    application_routing_mode: str = None,
+    created_start: str = None,
+    created_end: str = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Job).filter(models.Job.is_active == True)
+    
+    if application_routing_mode:
+        query = query.filter(models.Job.application_routing_mode == application_routing_mode)
+        
+    if created_start:
+        from datetime import datetime
+        try:
+            start_dt = datetime.strptime(created_start, "%Y-%m-%d")
+            query = query.filter(models.Job.created_datetime >= start_dt)
+        except ValueError:
+            pass
+            
+    if created_end:
+        from datetime import datetime
+        try:
+            end_dt = datetime.strptime(created_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            query = query.filter(models.Job.created_datetime <= end_dt)
+        except ValueError:
+            pass
+            
+    if status:
+        query = query.filter(models.Job.status == status)
+    if type:
+        query = query.filter(models.Job.job_type == type)
+    if min_salary is not None:
+        query = query.filter(models.Job.salary_max >= min_salary)
+    if max_salary is not None:
+        query = query.filter(models.Job.salary_min <= max_salary)
+    
+    from sqlalchemy import cast, String
+    if city:
+        query = query.filter(cast(models.Job.location, String).ilike(f"%{city}%"))
+        
+    if experience:
+        if experience == 'Fresher (0 yrs)':
+            query = query.filter(models.Job.experience_required_years == 0)
+        elif experience == '1-3 Years':
+            query = query.filter(models.Job.experience_required_years <= 3)
+        elif experience == '3-5 Years':
+            query = query.filter(models.Job.experience_required_years >= 3)
+        elif experience == '5+ Years':
+            query = query.filter(models.Job.experience_required_years >= 5)
+            
+    jobs = query.order_by(models.Job.created_datetime.desc()).all()
+    
+    results = []
+    for j in jobs:
+        j_dict = {c.name: getattr(j, c.name) for c in j.__table__.columns}
+        j_dict['applicants_count'] = db.query(models.JobApplication).filter(models.JobApplication.job_id == j.id).count()
+        results.append(j_dict)
+        
+    return results
+
+@app.get("/api/admin/jobs")
+def get_admin_jobs(
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    status: Optional[str] = None, 
+    type: Optional[str] = None, 
+    city: Optional[str] = None, 
+    min_salary: Optional[int] = None, 
+    max_salary: Optional[int] = None,
+    experience: Optional[str] = None,
+    application_routing_mode: Optional[str] = None,
+    created_start: Optional[str] = None,
+    created_end: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.Job).filter(models.Job.is_active == True)
+    
+    if search:
+        from sqlalchemy import cast, String
+        query = query.filter(
+            models.Job.title.ilike(f"%{search}%") | 
+            models.Job.company.ilike(f"%{search}%") |
+            cast(models.Job.location, String).ilike(f"%{search}%")
+        )
+        
+    if application_routing_mode:
+        query = query.filter(models.Job.application_routing_mode == application_routing_mode)
+        
+    if created_start:
+        from datetime import datetime
+        try:
+            start_dt = datetime.strptime(created_start, "%Y-%m-%d")
+            query = query.filter(models.Job.created_datetime >= start_dt)
+        except ValueError:
+            pass
+            
+    if created_end:
+        from datetime import datetime
+        try:
+            end_dt = datetime.strptime(created_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            query = query.filter(models.Job.created_datetime <= end_dt)
+        except ValueError:
+            pass
+            
+    if status:
+        query = query.filter(models.Job.status == status)
+    if type:
+        query = query.filter(models.Job.job_type == type)
+    if min_salary is not None:
+        query = query.filter(models.Job.salary_max >= min_salary)
+    if max_salary is not None:
+        query = query.filter(models.Job.salary_min <= max_salary)
+    
+    from sqlalchemy import cast, String
+    if city:
+        query = query.filter(cast(models.Job.location, String).ilike(f"%{city}%"))
+        
+    if experience:
+        if experience == 'Fresher (0 yrs)':
+            query = query.filter(models.Job.experience_required_years == 0)
+        elif experience == '1-3 Years':
+            query = query.filter(models.Job.experience_required_years <= 3)
+        elif experience == '3-5 Years':
+            query = query.filter(models.Job.experience_required_years >= 3)
+        elif experience == '5+ Years':
+            query = query.filter(models.Job.experience_required_years >= 5)
+
+    total = query.count()
+    jobs = query.order_by(models.Job.created_datetime.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    results = []
+    for j in jobs:
+        j_dict = {c.name: getattr(j, c.name) for c in j.__table__.columns}
+        j_dict['applicants_count'] = db.query(models.JobApplication).filter(models.JobApplication.job_id == j.id).count()
+        results.append(j_dict)
+        
+    return {"data": results, "total": total}
 
 @app.get("/api/jobs/locations", response_model=list[str])
 def get_job_locations(db: Session = Depends(get_db)):
-    locations = db.query(models.Job.location).filter(
+    jobs = db.query(models.Job.location).filter(
         models.Job.is_active == True,
-        models.Job.location != None,
-        models.Job.location != ""
-    ).distinct().all()
-    # Extract strings and trim whitespace
-    return sorted(list(set([loc[0].strip() for loc in locations if loc[0].strip()])))
+        models.Job.location != None
+    ).all()
+    
+    unique_cities = set()
+    for (loc,) in jobs:
+        if isinstance(loc, dict) and loc.get("city"):
+            unique_cities.add(loc["city"].strip())
+        elif isinstance(loc, str) and loc.strip():
+            unique_cities.add(loc.strip())
+            
+    return sorted(list(unique_cities))
 
-@app.get("/api/jobs/professions", response_model=list[str])
-def get_job_professions(db: Session = Depends(get_db)):
-    professions = db.query(models.Job.profession).filter(
-        models.Job.is_active == True,
-        models.Job.profession != None,
-        models.Job.profession != ""
-    ).distinct().all()
-    # Extract strings and trim whitespace
-    return sorted(list(set([prof[0].strip() for prof in professions if prof[0].strip()])))
+
 
 @app.post("/api/jobs", response_model=schemas.Job)
 def create_job(job: schemas.JobBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -331,6 +581,47 @@ def get_tests(
             
     return query.order_by(models.Test.created_datetime.desc()).offset(skip).limit(limit).all()
 
+@app.get("/api/admin/tests")
+def get_admin_tests(
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    profession: Optional[str] = None,
+    test_type: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.Test).filter(models.Test.is_active == True)
+    
+    if search:
+        query = query.filter(
+            models.Test.title.ilike(f"%{search}%") | 
+            models.Test.description.ilike(f"%{search}%") | 
+            models.Test.provider_name.ilike(f"%{search}%")
+        )
+        
+    if profession:
+        query = query.filter(models.Test.tag.ilike(f"%{profession}%"))
+        
+    if test_type:
+        query = query.filter(models.Test.test_type == test_type)
+        
+    if category:
+        query = query.filter(models.Test.category == category)
+        
+    if status:
+        if status == 'draft':
+            query = query.filter((models.Test.status == 'draft') | (models.Test.status == None))
+        else:
+            query = query.filter(models.Test.status == status)
+
+    total = query.count()
+    tests = query.order_by(models.Test.created_datetime.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    return {"data": tests, "total": total}
+
 @app.post("/api/tests", response_model=schemas.TestModel)
 def create_test(test: schemas.TestBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     db_test = models.Test(**test.model_dump())
@@ -358,6 +649,43 @@ def get_test(test_id: str, db: Session = Depends(get_db)):
     if not db_test:
         raise HTTPException(status_code=404, detail="Test not found")
     return db_test
+
+@app.get("/api/tests/{test_id}/questions", response_model=list[schemas.TestQuestionModel])
+def get_test_questions(test_id: str, db: Session = Depends(get_db)):
+    return db.query(models.TestQuestion).filter(models.TestQuestion.test_id == test_id).order_by(models.TestQuestion.order_index).all()
+
+@app.post("/api/tests/{test_id}/questions", response_model=schemas.TestQuestionModel)
+def create_test_question(test_id: str, question: schemas.TestQuestionCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    data = question.model_dump()
+    data["test_id"] = test_id
+    db_question = models.TestQuestion(**data)
+    db.add(db_question)
+    db.commit()
+    db.refresh(db_question)
+    auth.log_admin_action(db, admin, "CREATE", "TestQuestion", str(db_question.id))
+    return db_question
+
+@app.put("/api/tests/{test_id}/questions/{question_id}", response_model=schemas.TestQuestionModel)
+def update_test_question(test_id: str, question_id: str, question_update: schemas.TestQuestionUpdate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == question_id, models.TestQuestion.test_id == test_id).first()
+    if not db_question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    for key, value in question_update.model_dump(exclude_unset=True).items():
+        setattr(db_question, key, value)
+    db.commit()
+    db.refresh(db_question)
+    auth.log_admin_action(db, admin, "UPDATE", "TestQuestion", question_id)
+    return db_question
+
+@app.delete("/api/tests/{test_id}/questions/{question_id}")
+def delete_test_question(test_id: str, question_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == question_id, models.TestQuestion.test_id == test_id).first()
+    if not db_question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    db.delete(db_question)
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "TestQuestion", question_id)
+    return {"status": "success"}
 
 @app.put("/api/tests/{test_id}", response_model=schemas.TestModel)
 def update_test(test_id: str, test_update: schemas.TestBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -720,51 +1048,172 @@ def get_admin_claimed_offers(db: Session = Depends(get_db), admin: str = Depends
     return db.query(models.ClaimedOffer).all()
 
 # Users
-@app.get("/api/users", response_model=list[schemas.User])
-def get_users(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    return db.query(models.User).filter(models.User.is_active == True).all()
+@app.get("/api/users/filters/education")
+def get_unique_educations(db: Session = Depends(get_db)):
+    from sqlalchemy import cast, String
+    profiles = db.query(models.StudentProfile.education_history).filter(models.StudentProfile.education_history != None).all()
+    unique_educations = set()
+    for p in profiles:
+        if not p.education_history:
+            continue
+        for edu in p.education_history:
+            degree = edu.get("degree")
+            if degree and isinstance(degree, str):
+                unique_educations.add(degree)
+    
+    return sorted(list(unique_educations))
+
+@app.get("/api/users")
+def get_users(
+    city: str = None,
+    goal_id: str = None,
+    education: str = None,
+    joined_start: str = None,
+    joined_end: str = None,
+    min_profile_score: int = None,
+    search: str = None,
+    page: int = 1,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.User).outerjoin(models.StudentProfile).filter(
+        models.User.is_active == True,
+        models.User.role == "student"
+    )
+    
+    # Filters
+    if city:
+        city_term = f"%{city}%"
+        query = query.filter(models.StudentProfile.city.ilike(city_term))
+        
+    if goal_id:
+        query = query.filter(models.StudentProfile.goal_id == goal_id)
+        
+    if education:
+        from sqlalchemy import cast, String
+        # Cast JSON column to string to search inside the array
+        query = query.filter(cast(models.StudentProfile.education_history, String).ilike(f"%{education}%"))
+        
+    if joined_start:
+        from datetime import datetime
+        try:
+            start_dt = datetime.strptime(joined_start, "%Y-%m-%d")
+            query = query.filter(models.User.created_datetime >= start_dt)
+        except ValueError:
+            pass
+            
+    if joined_end:
+        from datetime import datetime
+        try:
+            end_dt = datetime.strptime(joined_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            query = query.filter(models.User.created_datetime <= end_dt)
+        except ValueError:
+            pass
+            
+    if min_profile_score is not None:
+        query = query.filter(models.StudentProfile.profile_completion_score >= min_profile_score)
+        
+    # Search
+    if search:
+        search_term = f"%{search}%"
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                models.User.full_name.ilike(search_term),
+                models.User.email.ilike(search_term),
+                models.User.mobile_number.ilike(search_term)
+            )
+        )
+        
+    total = query.count()
+    offset = (page - 1) * limit
+    users = query.order_by(models.User.created_datetime.desc()).offset(offset).limit(limit).all()
+    
+    results = []
+    for user in users:
+        sp = user.student_profile
+        results.append({
+            "id": str(user.id),
+            "full_name": user.full_name,
+            "email": user.email,
+            "mobile_number": user.mobile_number,
+            "city": sp.city if sp else None,
+            "goal": {"name": sp.goal.name} if sp and sp.goal else None,
+            "experience_years": sp.years_of_experience if sp else 0,
+            "profile_score": sp.profile_completion_score if sp else 0,
+            "profile_image_url": sp.profile_image_url if sp else None,
+            "created_datetime": user.created_datetime.isoformat() if hasattr(user, 'created_datetime') and user.created_datetime else None
+        })
+        
+    return {
+        "data": results,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "totalPages": (total + limit - 1) // limit
+    }
+
+from fastapi.encoders import jsonable_encoder
 
 @app.get("/api/users/{user_id}/details")
 def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     user = db.query(models.User).filter(models.User.id == user_id, models.User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+        
+    sp = user.student_profile
     
-    # We will just fetch the raw data and let the frontend join it or we can manually join it here.
-    # Since we didn't set up SQLAlchemy relationships in models.py (no `relationship()` on User), 
-    # we will query manually.
-    
-    job_apps = db.query(models.JobApplication).filter(models.JobApplication.user_id == user_id).all()
-    test_attempts = db.query(models.TestAttempt).filter(models.TestAttempt.user_id == user_id).all()
+    # Flatten user and student_profile for the frontend
+    user_dict = jsonable_encoder(user)
+    if sp:
+        sp_dict = jsonable_encoder(sp)
+        # Do not overwrite base user fields
+        for field in ['id', 'created_datetime', 'is_active', 'deleted_datetime']:
+            sp_dict.pop(field, None)
+            
+        # Add nested objects explicitly
+        sp_dict['goal'] = jsonable_encoder(sp.goal) if sp.goal else None
+        sp_dict['acquisition_source'] = sp.acquisition_source.name if sp.acquisition_source else None
+        user_dict.update(sp_dict)
+        
+    job_apps = []
+    test_attempts = []
+    if sp:
+        job_apps = db.query(models.JobApplication).filter(models.JobApplication.student_profile_id == sp.id).all()
+        test_attempts = db.query(models.TestAttempt).filter(models.TestAttempt.student_profile_id == sp.id).all()
     prof_appts = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == user_id).all()
     
-    # Enrich with actual job/test/doc data for the frontend
     job_apps_enriched = []
     for app in job_apps:
         job = db.query(models.Job).filter(models.Job.id == app.job_id).first()
-        app_dict = app.__dict__.copy()
-        app_dict['job'] = job.__dict__ if job else None
+        app_dict = jsonable_encoder(app)
+        app_dict['job'] = jsonable_encoder(job) if job else None
         job_apps_enriched.append(app_dict)
         
     test_attempts_enriched = []
     for att in test_attempts:
         test = db.query(models.Test).filter(models.Test.id == att.test_id).first()
-        att_dict = att.__dict__.copy()
-        att_dict['test'] = test.__dict__ if test else None
+        att_dict = jsonable_encoder(att)
+        att_dict['test'] = jsonable_encoder(test) if test else None
         test_attempts_enriched.append(att_dict)
         
     prof_appts_enriched = []
     for apt in prof_appts:
         prof = db.query(models.Professional).filter(models.Professional.id == apt.professional_id).first()
-        apt_dict = apt.__dict__.copy()
-        apt_dict['doctor'] = prof.__dict__ if prof else None
+        apt_dict = jsonable_encoder(apt)
+        apt_dict['doctor'] = jsonable_encoder(prof) if prof else None
         prof_appts_enriched.append(apt_dict)
         
+    resume_sessions = db.query(models.ResumeSession).filter(models.ResumeSession.user_id == user_id).order_by(models.ResumeSession.id.desc()).all()
+    resume_sessions_encoded = [jsonable_encoder(rs) for rs in resume_sessions]
+        
     return {
-        "user": user,
+        "user": user_dict,
         "job_applications": job_apps_enriched,
         "test_attempts": test_attempts_enriched,
-        "professional_appointments": prof_appts_enriched
+        "professional_appointments": prof_appts_enriched,
+        "resume_sessions": resume_sessions_encoded
     }
 
 @app.put("/api/users/profile", response_model=schemas.User)
@@ -869,38 +1318,39 @@ async def submit_test_attempt(attempt_req: schemas.TestAttemptCreate, db: Sessio
     
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key and attempt_req.question_responses and test.questions:
-        test_q_map = {q.get("id"): q for q in test.questions if isinstance(q, dict)}
-        topic_stats = {}
+        system_prompt = """You are an educational AI that analyses a student's test attempt and writes a personalised performance report. Always use second-person voice ('You'). Be concise, encouraging, and constructive.
+
+Return exactly and ONLY a JSON object with this structure:
+{
+  "overall_insight": "string, 2-3 sentences, student voice",
+  "weak_areas": [
+    { "topic": "string", "subtopic": "string", "accuracy": number (0-100) }
+  ],
+  "strong_areas": [
+    { "topic": "string", "subtopic": "string", "accuracy": number (0-100) }
+  ],
+  "time_management": "string, 1 sentence"
+}
+"""
+        score = attempt_req.total_score or 0
+        total_q = attempt_req.max_score or attempt_req.total_questions or 1
+        pct = round((score / total_q) * 100)
+        time_taken = attempt_req.time_taken_seconds or 0
         
-        for resp in attempt_req.question_responses:
-            if not isinstance(resp, dict): continue
-            q_id = resp.get("question_id")
-            tq = test_q_map.get(q_id)
-            if not tq: continue
+        q_data_lines = []
+        for q in attempt_req.question_responses:
+            if not isinstance(q, dict): continue
+            # If front-end sends question_text, use it, else generic
+            q_text = q.get('question_text', 'Unknown')[:100]
+            q_data_lines.append(f"- Question: {q_text}... | Correct: {q.get('is_correct', False)} | Time: {q.get('time_spent_seconds', 0)}s")
             
-            topic = tq.get("topic", "General")
-            is_correct = resp.get("is_correct", False)
-            time_spent = resp.get("time_spent_seconds", 0)
-            expected_time = tq.get("expected_time_seconds", 60)
-            
-            if topic not in topic_stats:
-                topic_stats[topic] = {"correct": 0, "total": 0, "time_spent": 0, "expected_time": 0}
-                
-            topic_stats[topic]["total"] += 1
-            if is_correct: topic_stats[topic]["correct"] += 1
-            topic_stats[topic]["time_spent"] += time_spent
-            topic_stats[topic]["expected_time"] += expected_time
+        user_prompt = f"""Test: {test.title}
+Total Questions: {total_q}
+Student Score: {score} / {total_q} ({pct}%)
+Total Time Taken: {time_taken}s
 
-        system_prompt = f"""
-You are an expert career and academic counselor. Analyze the following student test performance data aggregated by topic.
-Data: {json.dumps(topic_stats)}
-
-Create a personalized JSON report identifying:
-1. "mastered_topics": List of topics with high accuracy and fast time.
-2. "weak_topics": List of topics with low accuracy OR significantly high time spent.
-3. "recommendations": A short, encouraging paragraph on what to study next.
-
-Return ONLY a valid JSON object matching the structure: {{"mastered_topics": [str], "weak_topics": [str], "recommendations": str}}
+Questions answered:
+{chr(10).join(q_data_lines[:30])}
 """
         async with httpx.AsyncClient() as client:
             try:
@@ -910,7 +1360,10 @@ Return ONLY a valid JSON object matching the structure: {{"mastered_topics": [st
                     json={
                         "model": "gpt-4o-mini",
                         "response_format": {"type": "json_object"},
-                        "messages": [{"role": "system", "content": system_prompt}],
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
                         "temperature": 0.7
                     },
                     timeout=15.0
@@ -950,8 +1403,8 @@ def get_activity_logs(db: Session = Depends(get_db), admin: str = Depends(auth.g
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     today = date.today()
-    from sqlalchemy import extract
-    from datetime import datetime, time
+    from sqlalchemy import extract, func
+    from datetime import datetime, time, timedelta
 
     start_date = None
     if filter == "Today":
@@ -959,147 +1412,147 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
     elif filter == "Yesterday":
         start_date = datetime.combine(today - timedelta(days=1), time.min)
     elif filter == "This Week":
-        start_date = datetime.combine(today - timedelta(days=6), time.min)
+        monday = today - timedelta(days=today.weekday())
+        start_date = datetime.combine(monday, time.min)
     elif filter == "This Month":
-        start_date = datetime.combine(today - timedelta(days=29), time.min)
+        start_date = datetime.combine(today.replace(day=1), time.min)
     elif filter == "This Year":
         start_date = datetime.combine(today.replace(month=1, day=1), time.min)
 
-    # Base queries
-    users_q = db.query(models.User).filter(models.User.is_active == True)
-    jobs_q = db.query(models.Job).filter(models.Job.is_active == True)
-    tests_q = db.query(models.TestAttempt)
-    appts_q = db.query(models.ProfessionalAppointment)
+    # Base queries (Only Students)
+    users_q = db.query(models.User).filter(models.User.is_active == True, models.User.role == 'student')
+    job_apps_q = db.query(models.JobApplication).join(models.StudentProfile).join(models.User).filter(models.JobApplication.is_active == True, models.User.role == 'student')
+    tests_q = db.query(models.TestAttempt).join(models.StudentProfile).join(models.User).filter(models.User.role == 'student')
+    appts_q = db.query(models.ProfessionalAppointment).join(models.User).filter(models.User.role == 'student')
 
-    # Apply date filters if not "All Time"
+    # Apply date filters
     if start_date:
         users_q = users_q.filter(models.User.created_datetime >= start_date)
-        jobs_q = jobs_q.filter(models.Job.created_datetime >= start_date)
+        job_apps_q = job_apps_q.filter(models.JobApplication.created_datetime >= start_date)
         tests_q = tests_q.filter(models.TestAttempt.created_datetime >= start_date)
-        # Assuming appointments have created_datetime, otherwise we filter by appointment_date string (harder)
-        # We will use created_datetime for appointments if it exists in BaseModel
         appts_q = appts_q.filter(models.ProfessionalAppointment.created_datetime >= start_date)
 
     if filter == "Yesterday":
         end_date = datetime.combine(today, time.min)
         users_q = users_q.filter(models.User.created_datetime < end_date)
-        jobs_q = jobs_q.filter(models.Job.created_datetime < end_date)
+        job_apps_q = job_apps_q.filter(models.JobApplication.created_datetime < end_date)
         tests_q = tests_q.filter(models.TestAttempt.created_datetime < end_date)
         appts_q = appts_q.filter(models.ProfessionalAppointment.created_datetime < end_date)
 
     total_users = users_q.count()
-    active_jobs = jobs_q.count()
+    total_job_applications = job_apps_q.count()
     tests_taken = tests_q.count()
     appointments = appts_q.count()
     
-    # Generate chart data based on filter
+    # 1. Activity Trends
     chart_data = []
-    
-    if filter in ["Today", "Yesterday", "This Week"]:
+    if filter in ["Today", "Yesterday"]:
         for i in range(6, -1, -1):
             target_date = today - timedelta(days=i)
-            day_name = target_date.strftime("%b %d") # e.g. Sep 14
+            day_name = target_date.strftime("%b %d")
+            users_count = db.query(models.User).filter(func.date(models.User.created_datetime) == target_date, models.User.is_active == True, models.User.role == 'student').count()
+            chart_data.append({"name": day_name, "users": users_count})
             
-            users_count = db.query(models.User).filter(
-                func.date(models.User.created_datetime) == target_date,
-                models.User.is_active == True
-            ).count()
-            
-            jobs_count = db.query(models.Job).filter(
-                func.date(models.Job.created_datetime) == target_date,
-                models.Job.is_active == True
-            ).count()
-            
-            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+    elif filter == "This Week":
+        monday = today - timedelta(days=today.weekday())
+        for i in range(7):
+            target_date = monday + timedelta(days=i)
+            day_name = target_date.strftime("%b %d")
+            users_count = db.query(models.User).filter(func.date(models.User.created_datetime) == target_date, models.User.is_active == True, models.User.role == 'student').count()
+            chart_data.append({"name": day_name, "users": users_count})
             
     elif filter == "This Month":
-        for i in range(29, -1, -1):
-            target_date = today - timedelta(days=i)
+        for i in range(1, today.day + 1):
+            target_date = today.replace(day=i)
             day_name = target_date.strftime("%b %d")
-            
-            users_count = db.query(models.User).filter(func.date(models.User.created_datetime) == target_date, models.User.is_active == True).count()
-            jobs_count = db.query(models.Job).filter(func.date(models.Job.created_datetime) == target_date, models.Job.is_active == True).count()
-            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            users_count = db.query(models.User).filter(func.date(models.User.created_datetime) == target_date, models.User.is_active == True, models.User.role == 'student').count()
+            chart_data.append({"name": day_name, "users": users_count})
             
     elif filter == "This Year":
-        for i in range(11, -1, -1):
-            m = today.month - i
+        import calendar
+        for m in range(1, today.month + 1):
             y = today.year
-            if m <= 0:
-                m += 12
-                y -= 1
-            import calendar
             day_name = f"{calendar.month_abbr[m]} {y}"
-            
-            users_count = db.query(models.User).filter(extract('month', models.User.created_datetime) == m, extract('year', models.User.created_datetime) == y, models.User.is_active == True).count()
-            jobs_count = db.query(models.Job).filter(extract('month', models.Job.created_datetime) == m, extract('year', models.Job.created_datetime) == y, models.Job.is_active == True).count()
-            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            users_count = db.query(models.User).filter(extract('month', models.User.created_datetime) == m, extract('year', models.User.created_datetime) == y, models.User.is_active == True, models.User.role == 'student').count()
+            chart_data.append({"name": day_name, "users": users_count})
             
     elif filter == "All Time":
         for i in range(4, -1, -1):
             y = today.year - i
             day_name = str(y)
-            users_count = db.query(models.User).filter(extract('year', models.User.created_datetime) == y, models.User.is_active == True).count()
-            jobs_count = db.query(models.Job).filter(extract('year', models.Job.created_datetime) == y, models.Job.is_active == True).count()
-            chart_data.append({"name": day_name, "users": users_count, "jobs": jobs_count})
+            users_count = db.query(models.User).filter(extract('year', models.User.created_datetime) == y, models.User.is_active == True, models.User.role == 'student').count()
+            chart_data.append({"name": day_name, "users": users_count})
 
-    # B2B Insights & Additional Chart Data
-    
-    # 1. Users by City
-    city_data = db.query(
-        models.User.city, 
-        func.count(models.User.id).label("count")
-    ).filter(models.User.is_active == True)
+    # 2. Profile Completion Breakdown
+    # Score is 0-100
+    completion_data = db.query(models.StudentProfile.profile_completion_score).join(models.User).filter(models.User.role == 'student')
     if start_date:
-        city_data = city_data.filter(models.User.created_datetime >= start_date)
-    city_data = city_data.group_by(models.User.city).all()
-    users_by_city = [{"name": c[0] or "Unknown", "value": c[1]} for c in city_data]
+        completion_data = completion_data.filter(models.User.created_datetime >= start_date)
+    scores = [r[0] or 0 for r in completion_data.all()]
+    
+    completion_breakdown = [
+        {"name": "0-25%", "value": len([s for s in scores if s <= 25])},
+        {"name": "26-50%", "value": len([s for s in scores if 25 < s <= 50])},
+        {"name": "51-75%", "value": len([s for s in scores if 50 < s <= 75])},
+        {"name": "76-100%", "value": len([s for s in scores if s > 75])}
+    ]
 
-    # 2. Users by Goal
-    goal_data = db.query(
-        models.User.goal, 
-        func.count(models.User.id).label("count")
-    ).filter(models.User.is_active == True)
+    # 3. Students by Goal
+    goal_data = db.query(models.Goal.name, func.count(models.StudentProfile.id).label("count"))\
+        .join(models.StudentProfile, models.Goal.id == models.StudentProfile.goal_id)\
+        .join(models.User, models.User.id == models.StudentProfile.user_id)\
+        .filter(models.User.role == 'student')
     if start_date:
         goal_data = goal_data.filter(models.User.created_datetime >= start_date)
-    goal_data = goal_data.group_by(models.User.goal).all()
-    users_by_goal = [{"name": g[0] or "Unknown", "value": g[1]} for g in goal_data]
+    goal_data = goal_data.group_by(models.Goal.name).order_by(func.count(models.StudentProfile.id).desc()).limit(10).all()
+    users_by_goal = [{"name": g[0], "value": g[1]} for g in goal_data]
 
-    # 3. Job Application Statuses
-    job_apps_data = db.query(
-        models.JobApplication.status, 
-        func.count(models.JobApplication.id).label("count")
-    )
+    # 4. User Acquisition Sources
+    acq_data = db.query(models.AcquisitionSource.name, func.count(models.StudentProfile.id).label("count"))\
+        .join(models.StudentProfile, models.AcquisitionSource.id == models.StudentProfile.acquisition_source_id)\
+        .join(models.User, models.User.id == models.StudentProfile.user_id)\
+        .filter(models.User.role == 'student')
+    if start_date:
+        acq_data = acq_data.filter(models.User.created_datetime >= start_date)
+    acq_data = acq_data.group_by(models.AcquisitionSource.name).all()
+    acquisition_sources = [{"name": a[0], "value": a[1]} for a in acq_data]
+
+    # 5. Experience Levels
+    exp_data = db.query(models.StudentProfile.years_of_experience).join(models.User).filter(models.User.role == 'student')
+    if start_date:
+        exp_data = exp_data.filter(models.User.created_datetime >= start_date)
+    exps = [r[0] or 0.0 for r in exp_data.all()]
+    
+    experience_levels = [
+        {"name": "Fresher", "value": len([e for e in exps if e == 0])},
+        {"name": "Junior (1-3)", "value": len([e for e in exps if 0 < e <= 3])},
+        {"name": "Senior (3+)", "value": len([e for e in exps if e > 3])}
+    ]
+
+    # 6. Application Success Rate
+    job_apps_data = db.query(models.JobApplication.status, func.count(models.JobApplication.id).label("count"))\
+        .join(models.StudentProfile, models.StudentProfile.id == models.JobApplication.student_profile_id)\
+        .join(models.User, models.User.id == models.StudentProfile.user_id)\
+        .filter(models.User.role == 'student')
     if start_date:
         job_apps_data = job_apps_data.filter(models.JobApplication.created_datetime >= start_date)
     job_apps_data = job_apps_data.group_by(models.JobApplication.status).all()
-    job_applications_status = [{"name": j[0] or "Pending", "value": j[1]} for j in job_apps_data]
-
-    # 4. Professional Consultations (Demand)
-    # Join ProfessionalAppointment with Professional to group by Profession
-    prof_demand_data = db.query(
-        models.Professional.profession,
-        func.count(models.ProfessionalAppointment.id).label("count")
-    ).join(
-        models.ProfessionalAppointment, models.Professional.id == models.ProfessionalAppointment.professional_id
-    )
-    if start_date:
-        prof_demand_data = prof_demand_data.filter(models.ProfessionalAppointment.created_datetime >= start_date)
-    prof_demand_data = prof_demand_data.group_by(models.Professional.profession).all()
-    appointments_by_profession = [{"name": p[0] or "Unknown", "value": p[1]} for p in prof_demand_data]
+    application_success = [{"name": j[0].capitalize() if j[0] else "Pending", "value": j[1]} for j in job_apps_data]
 
     return {
         "totals": {
             "users": total_users,
-            "jobs": active_jobs,
+            "jobs": total_job_applications, 
+            "job_applications": total_job_applications,
             "tests": tests_taken,
             "appointments": appointments
         },
         "chart_data": chart_data,
-        "users_by_city": users_by_city,
+        "completion_breakdown": completion_breakdown,
         "users_by_goal": users_by_goal,
-        "job_applications_status": job_applications_status,
-        "appointments_by_profession": appointments_by_profession
+        "acquisition_sources": acquisition_sources,
+        "experience_levels": experience_levels,
+        "application_success": application_success
     }
 
 # --- Admin Appointments Management ---
@@ -1151,22 +1604,90 @@ def admin_get_all_job_applications(db: Session = Depends(get_db), admin: str = D
 
 # --- Admin: All Test Attempts ---
 @app.get("/api/admin/test-attempts")
-def admin_get_all_test_attempts(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    attempts = db.query(models.TestAttempt).filter(models.TestAttempt.is_active == True).order_by(models.TestAttempt.created_datetime.desc()).all()
+def admin_get_all_test_attempts(
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    user_type: Optional[str] = None,
+    status: Optional[str] = None,
+    result: Optional[str] = None,
+    score_above: Optional[float] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.TestAttempt).filter(models.TestAttempt.is_active == True)
+    
+    if status:
+        query = query.filter(models.TestAttempt.status == status)
+        
+    if user_type == "Guest":
+        query = query.filter(models.TestAttempt.user_id == None, models.TestAttempt.guest_info != None)
+    elif user_type == "Registered":
+        query = query.filter(models.TestAttempt.user_id != None)
+        
+    if result == "passed":
+        query = query.filter((models.TestAttempt.total_score / models.TestAttempt.max_score * 100) >= 70)
+    elif result == "failed":
+        query = query.filter((models.TestAttempt.total_score / models.TestAttempt.max_score * 100) < 70)
+        
+    if score_above is not None:
+        query = query.filter((models.TestAttempt.total_score / models.TestAttempt.max_score * 100) >= score_above)
+        
+    if date_from:
+        from datetime import datetime
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+            query = query.filter(models.TestAttempt.created_datetime >= dt_from)
+        except ValueError:
+            pass
+            
+    if date_to:
+        from datetime import datetime, timedelta
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(models.TestAttempt.created_datetime < dt_to)
+        except ValueError:
+            pass
+        
+    if search:
+        query = query.join(models.User, models.TestAttempt.user_id == models.User.id, isouter=True) \
+                     .join(models.Test, models.TestAttempt.test_id == models.Test.id) \
+                     .filter(
+                         models.User.full_name.ilike(f"%{search}%") | 
+                         models.User.email.ilike(f"%{search}%") |
+                         models.Test.title.ilike(f"%{search}%")
+                     )
+                     
+    total = query.count()
+    attempts = query.order_by(models.TestAttempt.created_datetime.desc()).offset((page - 1) * limit).limit(limit).all()
+    
     result = []
     for att in attempts:
-        user = db.query(models.User).filter(models.User.id == att.user_id).first()
+        user = db.query(models.User).filter(models.User.id == att.user_id).first() if att.user_id else None
         test = db.query(models.Test).filter(models.Test.id == att.test_id).first()
         total_questions = len(test.questions) if test and test.questions else 0
+        
+        user_data = None
+        if user:
+            user_data = {"id": str(user.id), "full_name": user.full_name, "email": user.email, "mobile_number": user.mobile_number, "city": user.student_profile.city if user.student_profile else "", "type": "Registered"}
+        elif att.guest_info:
+            user_data = {"id": "guest", "full_name": att.guest_info.get("name", "Guest"), "email": att.guest_info.get("email", ""), "mobile_number": att.guest_info.get("phone", ""), "city": att.guest_info.get("city", ""), "type": "Guest"}
+            
         result.append({
             "id": str(att.id),
             "score": att.total_score,
             "total_questions": total_questions,
             "attempted_at": att.created_datetime.isoformat() if att.created_datetime else None,
-            "user": {"id": str(user.id), "full_name": user.full_name, "mobile_number": user.mobile_number, "city": user.city} if user else None,
+            "status": att.status,
+            "user": user_data,
             "test": {"id": str(test.id), "title": test.title, "tag": test.tag, "difficulty": test.difficulty} if test else None,
+            "question_responses": att.question_responses,
+            "ai_report": att.ai_report,
+            "time_taken_seconds": att.time_taken_seconds
         })
-    return result
+    return {"data": result, "total": total}
 
 
 import httpx
@@ -1303,3 +1824,271 @@ def update_resume_session(req: schemas.ResumeSessionUpdate, db: Session = Depend
     db.commit()
     db.refresh(session)
     return session
+
+# --- Settings Endpoints ---
+
+@app.get("/api/goals", response_model=list[schemas.Goal])
+def get_goals(db: Session = Depends(get_db)):
+    return db.query(models.Goal).filter(models.Goal.is_active == True).all()
+
+@app.post("/api/settings/goals", response_model=schemas.Goal)
+def create_goal(goal: schemas.GoalCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_goal = models.Goal(name=goal.name)
+    db.add(db_goal)
+    db.commit()
+    db.refresh(db_goal)
+    auth.log_admin_action(db, admin, "CREATE", "Goals", str(db_goal.id))
+    return db_goal
+
+@app.delete("/api/settings/goals/{goal_id}")
+def delete_goal(goal_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_goal = db.query(models.Goal).filter(models.Goal.id == goal_id).first()
+    if not db_goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    db_goal.is_active = False
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "Goals", goal_id)
+    return {"message": "Goal deleted successfully"}
+
+@app.get("/api/test-categories", response_model=list[schemas.TestCategory])
+def get_test_categories(db: Session = Depends(get_db)):
+    return db.query(models.TestCategory).filter(models.TestCategory.is_active == True).all()
+
+@app.post("/api/settings/test-categories", response_model=schemas.TestCategory)
+def create_test_category(category: schemas.TestCategoryCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_cat = models.TestCategory(name=category.name)
+    db.add(db_cat)
+    db.commit()
+    db.refresh(db_cat)
+    auth.log_admin_action(db, admin, "CREATE", "TestCategories", str(db_cat.id))
+    return db_cat
+
+@app.delete("/api/settings/test-categories/{cat_id}")
+def delete_test_category(cat_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_cat = db.query(models.TestCategory).filter(models.TestCategory.id == cat_id).first()
+    if not db_cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+    db_cat.is_active = False
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "TestCategories", cat_id)
+    return {"message": "Category deleted successfully"}
+
+@app.get("/api/acquisition-sources", response_model=list[schemas.AcquisitionSource])
+def get_acquisition_sources(db: Session = Depends(get_db)):
+    return db.query(models.AcquisitionSource).filter(models.AcquisitionSource.is_active == True).all()
+
+@app.post("/api/settings/acquisition-sources", response_model=schemas.AcquisitionSource)
+def create_acquisition_source(source: schemas.AcquisitionSourceCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_source = models.AcquisitionSource(name=source.name)
+    db.add(db_source)
+    db.commit()
+    db.refresh(db_source)
+    auth.log_admin_action(db, admin, "CREATE", "AcquisitionSources", str(db_source.id))
+    return db_source
+
+@app.delete("/api/settings/acquisition-sources/{source_id}")
+def delete_acquisition_source(source_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_source = db.query(models.AcquisitionSource).filter(models.AcquisitionSource.id == source_id).first()
+    if not db_source:
+        raise HTTPException(status_code=404, detail="Acquisition Source not found")
+    db_source.is_active = False
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "AcquisitionSources", source_id)
+    return {"message": "Acquisition Source deleted successfully"}
+
+@app.post("/api/settings/staff")
+def create_staff(req: schemas.StaffCreateRequest, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    if req.role not in ["admin", "staff", "manager"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+        
+    try:
+        # 1. Create Firebase User
+        fb_user = firebase_auth.create_user(
+            email=req.email,
+            password=req.password,
+            display_name=req.full_name
+        )
+        
+        # 2. Create PostgreSQL User
+        db_user = models.User(
+            email=req.email,
+            full_name=req.full_name,
+            role=req.role,
+            firebase_uid=fb_user.uid
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        auth.log_admin_action(db, admin, "CREATE", "Staff", str(db_user.id))
+        return {"message": f"{req.role.capitalize()} account created successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+import requests
+
+@app.get("/api/pincodes/{pincode}", response_model=list[schemas.PincodeDirectory])
+def get_pincode_info(pincode: str, db: Session = Depends(get_db)):
+    # 1. Check local DB cache
+    local_data = db.query(models.PincodeDirectory).filter(models.PincodeDirectory.pincode == pincode).all()
+    if local_data:
+        return local_data
+    
+    # 2. If not found, fetch from official API and seed the DB!
+    try:
+        response = requests.get(f"https://api.postalpincode.in/pincode/{pincode}", headers={"User-Agent": "Mozilla/5.0"})
+        if response.status_code == 200:
+            data = response.json()
+            if data and data[0].get("Status") == "Success":
+                new_records = []
+                for post_office in data[0].get("PostOffice", []):
+                    record = models.PincodeDirectory(
+                        pincode=pincode,
+                        area=post_office.get("Name"),
+                        city=post_office.get("District"),
+                        state=post_office.get("State")
+                    )
+                    db.add(record)
+                    new_records.append(record)
+                db.commit()
+                return new_records
+    except Exception as e:
+        print(f"Failed to fetch pincode {pincode}: {e}")
+        
+    return []
+
+@app.get("/api/skills", response_model=list[schemas.SkillDictionary])
+def search_skills(q: str = "", db: Session = Depends(get_db)):
+    query = db.query(models.SkillDictionary)
+    if q:
+        # Case-insensitive fuzzy matching
+        query = query.filter(models.SkillDictionary.name.ilike(f"%{q}%"))
+    return query.order_by(models.SkillDictionary.name).limit(20).all()
+
+@app.post("/api/skills", response_model=schemas.SkillDictionary)
+def create_skill(skill: schemas.SkillDictionaryBase, db: Session = Depends(get_db)):
+    # Check if exists (case insensitive)
+    existing = db.query(models.SkillDictionary).filter(models.SkillDictionary.name.ilike(skill.name)).first()
+    if existing:
+        return existing
+        
+    db_skill = models.SkillDictionary(**skill.model_dump())
+    db.add(db_skill)
+    db.commit()
+    db.refresh(db_skill)
+    return db_skill
+
+from pydantic import BaseModel
+class SkillMergeRequest(BaseModel):
+    source_skill_names: list[str]
+    target_skill_name: str
+
+@app.put("/api/skills/{skill_id}", response_model=schemas.SkillDictionary)
+def update_skill(skill_id: str, skill_update: schemas.SkillDictionaryBase, db: Session = Depends(get_db)):
+    db_skill = db.query(models.SkillDictionary).filter(models.SkillDictionary.id == skill_id).first()
+    if not db_skill:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    
+    # Update properties
+    db_skill.name = skill_update.name
+    if hasattr(skill_update, 'is_approved'):
+        db_skill.is_approved = skill_update.is_approved
+    
+    db.commit()
+    db.refresh(db_skill)
+    return db_skill
+
+@app.post("/api/skills/merge")
+def merge_skills(req: SkillMergeRequest, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    # 1. Ensure target skill exists
+    target = db.query(models.SkillDictionary).filter(models.SkillDictionary.name.ilike(req.target_skill_name)).first()
+    if not target:
+        target = models.SkillDictionary(name=req.target_skill_name, is_approved=True)
+        db.add(target)
+        db.commit()
+
+    # 2. Find all source skills and delete them from SkillDictionary
+    for src in req.source_skill_names:
+        db.query(models.SkillDictionary).filter(models.SkillDictionary.name.ilike(src)).delete(synchronize_session=False)
+    
+    # Note: A real database cascade update for JSON arrays (to replace "jva" with "Java" in jobs & profiles)
+    # would go here using postgres jsonb functions or iterating records.
+    db.commit()
+    return {"status": "success", "message": f"Merged {len(req.source_skill_names)} skills into {req.target_skill_name}"}
+
+
+@app.post("/api/users/{user_id}/suspend")
+def toggle_user_suspension(user_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Toggle active status
+    user.is_active = not user.is_active
+    db.commit()
+    return {"message": "User suspended successfully" if not user.is_active else "User activated successfully", "is_active": user.is_active}
+
+
+@app.get("/api/test-taxonomy", response_model=list[schemas.QuestionTaxonomyModel])
+def get_test_taxonomies(type: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(models.QuestionTaxonomy)
+    if type:
+        query = query.filter(models.QuestionTaxonomy.type == type)
+    return query.order_by(models.QuestionTaxonomy.name).all()
+
+@app.post("/api/test-taxonomy", response_model=schemas.QuestionTaxonomyModel)
+def create_test_taxonomy(tax: schemas.QuestionTaxonomyCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    existing = db.query(models.QuestionTaxonomy).filter(models.QuestionTaxonomy.type == tax.type, models.QuestionTaxonomy.name == tax.name).first()
+    if existing:
+        return existing
+    db_tax = models.QuestionTaxonomy(**tax.model_dump())
+    db.add(db_tax)
+    db.commit()
+    db.refresh(db_tax)
+    auth.log_admin_action(db, admin, "CREATE", "QuestionTaxonomy", str(db_tax.id))
+    return db_tax
+
+@app.put("/api/test-taxonomy/{tax_id}", response_model=schemas.QuestionTaxonomyModel)
+def update_test_taxonomy(tax_id: str, tax_update: schemas.QuestionTaxonomyUpdate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_tax = db.query(models.QuestionTaxonomy).filter(models.QuestionTaxonomy.id == tax_id).first()
+    if not db_tax:
+        raise HTTPException(status_code=404, detail="Taxonomy not found")
+    db_tax.name = tax_update.name
+    db.commit()
+    db.refresh(db_tax)
+    auth.log_admin_action(db, admin, "UPDATE", "QuestionTaxonomy", tax_id)
+    return db_tax
+
+@app.delete("/api/test-taxonomy/{tax_id}")
+def delete_test_taxonomy(tax_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    db_tax = db.query(models.QuestionTaxonomy).filter(models.QuestionTaxonomy.id == tax_id).first()
+    if not db_tax:
+        raise HTTPException(status_code=404, detail="Taxonomy not found")
+    db.delete(db_tax)
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "QuestionTaxonomy", tax_id)
+    return {"status": "success"}
+
+@app.post("/api/test-taxonomy/merge")
+def merge_test_taxonomy(req: schemas.MergeTaxonomyRequest, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    # Find all questions with the old source_name
+    questions = db.query(models.TestQuestion).filter(getattr(models.TestQuestion, req.type) == req.source_name).all()
+    for q in questions:
+        setattr(q, req.type, req.target_name)
+    
+    # Ensure target taxonomy exists
+    target = db.query(models.QuestionTaxonomy).filter(models.QuestionTaxonomy.type == req.type, models.QuestionTaxonomy.name == req.target_name).first()
+    if not target:
+        target = models.QuestionTaxonomy(type=req.type, name=req.target_name)
+        db.add(target)
+        db.commit()
+        
+    # Delete the old taxonomy entry
+    old_tax = db.query(models.QuestionTaxonomy).filter(models.QuestionTaxonomy.type == req.type, models.QuestionTaxonomy.name == req.source_name).first()
+    if old_tax:
+        db.delete(old_tax)
+        
+    db.commit()
+    auth.log_admin_action(db, admin, "MERGE", "QuestionTaxonomy", f"Merged {req.source_name} to {req.target_name}")
+    return {"status": "success", "updated_count": len(questions)}

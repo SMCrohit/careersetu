@@ -17,6 +17,12 @@ export interface DataTableProps<T> {
   emptyStateMessage?: string;
   emptyStateIcon?: React.ReactNode;
   toolbarExtras?: React.ReactNode;
+  serverSideMode?: boolean;
+  serverSideTotal?: number;
+  serverSidePage?: number;
+  onPageChange?: (page: number) => void;
+  onSearchChange?: (search: string) => void;
+  onPageSizeChange?: (size: number) => void;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100];
@@ -29,7 +35,13 @@ export function DataTable<T extends Record<string, any>>({
   loading = false,
   emptyStateMessage = 'No data found.',
   emptyStateIcon = <Database size={36} className="text-border" />,
-  toolbarExtras
+  toolbarExtras,
+  serverSideMode = false,
+  serverSideTotal = 0,
+  serverSidePage = 1,
+  onPageChange,
+  onSearchChange,
+  onPageSizeChange
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('');
   const [pageSize, setPageSize] = useState(10);
@@ -72,13 +84,17 @@ export function DataTable<T extends Record<string, any>>({
   }, [filteredData, sortConfig]);
 
   // 3. Pagination
-  const totalPages = Math.max(1, Math.ceil(sortedData.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
+  const activeTotal = serverSideMode ? serverSideTotal : filteredData.length;
+  const activePage = serverSideMode ? serverSidePage : currentPage;
+  const activeTotalPages = Math.max(1, Math.ceil(activeTotal / pageSize));
+  
+  const safePage = Math.max(1, Math.min(activePage, activeTotalPages));
   
   const paginatedData = useMemo(() => {
+    if (serverSideMode) return sortedData;
     const start = (safePage - 1) * pageSize;
     return sortedData.slice(start, start + pageSize);
-  }, [sortedData, safePage, pageSize]);
+  }, [sortedData, safePage, pageSize, serverSideMode]);
 
   // Handlers
   const handleSort = (key: string) => {
@@ -92,25 +108,34 @@ export function DataTable<T extends Record<string, any>>({
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
-    setCurrentPage(1); // Reset to first page on search
+    if (serverSideMode && onSearchChange) {
+      onSearchChange(val);
+    } else {
+      setCurrentPage(1);
+    }
   };
 
   const handlePageSizeChange = (val: number) => {
     setPageSize(val);
     setCurrentPage(1); // Reset to first page on page size change
+    if (onPageSizeChange) {
+      onPageSizeChange(val);
+    } else if (onPageChange && !serverSideMode) {
+      onPageChange(1);
+    }
   };
 
   // Pagination UI Helpers
   const getPageNumbers = () => {
     const pages: (number | '...')[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    if (activeTotalPages <= 7) {
+      for (let i = 1; i <= activeTotalPages; i++) pages.push(i);
     } else {
       pages.push(1);
       if (safePage > 3) pages.push('...');
-      for (let i = Math.max(2, safePage - 1); i <= Math.min(totalPages - 1, safePage + 1); i++) pages.push(i);
-      if (safePage < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
+      for (let i = Math.max(2, safePage - 1); i <= Math.min(activeTotalPages - 1, safePage + 1); i++) pages.push(i);
+      if (safePage < activeTotalPages - 2) pages.push('...');
+      pages.push(activeTotalPages);
     }
     return pages;
   };
@@ -133,13 +158,13 @@ export function DataTable<T extends Record<string, any>>({
           {toolbarExtras}
         </div>
         <span className="text-sm font-medium text-secondaryText">
-          {filteredData.length} {filteredData.length === 1 ? 'result' : 'results'}
+          {activeTotal} {activeTotal === 1 ? 'result' : 'results'}
         </span>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[800px]">
+        <table className="w-full text-left border-collapse min-w-[1200px]">
           <thead>
             <tr className="border-b border-border text-sm text-secondaryText bg-backgroundLight/50">
               <th className="p-4 font-semibold w-16">#</th>
@@ -208,10 +233,10 @@ export function DataTable<T extends Record<string, any>>({
           <p className="text-sm text-secondaryText">
             Showing{' '}
             <span className="font-semibold text-primaryText">
-              {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filteredData.length)}
+              {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, serverSideMode ? serverSideTotal : filteredData.length)}
             </span>{' '}
             of{' '}
-            <span className="font-semibold text-primaryText">{filteredData.length}</span>
+            <span className="font-semibold text-primaryText">{serverSideMode ? serverSideTotal : filteredData.length}</span>
           </p>
 
           <div className="flex items-center gap-4">
@@ -232,7 +257,7 @@ export function DataTable<T extends Record<string, any>>({
             {/* Pagination Controls */}
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                onClick={() => { if (serverSideMode && onPageChange) onPageChange(Math.max(1, activePage - 1)); else setCurrentPage((p) => Math.max(1, p - 1)); }}
                 disabled={safePage === 1}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-secondaryText hover:bg-backgroundLight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
@@ -246,7 +271,7 @@ export function DataTable<T extends Record<string, any>>({
                   ) : (
                     <button
                       key={pg}
-                      onClick={() => setCurrentPage(pg as number)}
+                      onClick={() => { if (serverSideMode && onPageChange) onPageChange(pg as number); else setCurrentPage(pg as number); }}
                       className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
                         pg === safePage
                           ? 'bg-primaryBrand text-white shadow-sm'
@@ -260,8 +285,8 @@ export function DataTable<T extends Record<string, any>>({
               </div>
 
               <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
+                onClick={() => { if (serverSideMode && onPageChange) onPageChange(Math.min(activeTotalPages, activePage + 1)); else setCurrentPage((p) => Math.min(activeTotalPages, p + 1)); }}
+                disabled={safePage === activeTotalPages}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm font-medium text-secondaryText hover:bg-backgroundLight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <span className="hidden sm:inline">Next</span> <ChevronRight size={16} />

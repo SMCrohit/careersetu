@@ -1,383 +1,509 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-import { ArrowLeft, Plus, Trash2, Save, X, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Edit2, X, Upload, Image as ImageIcon } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
-import Modal from '../components/Modal';
 import { useToast } from '../context/ToastContext';
+import CreatableSelect from 'react-select/creatable';
 
-interface Question {
+interface TestQuestion {
   id: string;
-  text: string;
-  options: string[];
+  test_id: string;
+  question_type: string;
+  question_text: string;
+  question_image_url?: string;
+  question_note?: string;
+  options: { id: string, text: string, image_url?: string }[];
   correct_answer: string;
+  marks: number;
+  negative_marks?: number;
+  time_limit_seconds?: number;
   section?: string;
   topic?: string;
   subtopic?: string;
-  time_limit_seconds?: number;
+  difficulty: string;
   explanation?: string;
-  difficulty?: string;
+  explanation_image_url?: string;
+  order_index: number;
 }
+
+const defaultQuestion = {
+  question_type: 'single_select',
+  question_text: '',
+  question_image_url: '',
+  question_note: '',
+  options: [
+    { id: '1', text: '' },
+    { id: '2', text: '' },
+    { id: '3', text: '' },
+    { id: '4', text: '' }
+  ],
+  correct_answer: '',
+  marks: 1.0,
+  negative_marks: 0,
+  time_limit_seconds: 0,
+  section: '',
+  topic: '',
+  subtopic: '',
+  difficulty: 'Medium',
+  explanation: '',
+  explanation_image_url: '',
+  order_index: 0
+};
 
 const TestQuestions = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [test, setTest] = useState<any>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [questionToDelete, setQuestionToDelete] = useState<number | null>(null);
+  const [test, setTest] = useState<any>(null);
+  const [questions, setQuestions] = useState<TestQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Taxonomies
+  const [sections, setSections] = useState<{label: string, value: string}[]>([]);
+  const [topics, setTopics] = useState<{label: string, value: string}[]>([]);
+  const [subtopics, setSubtopics] = useState<{label: string, value: string}[]>([]);
 
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [invalidQuestionsModalOpen, setInvalidQuestionsModalOpen] = useState(false);
-  const [invalidQuestions, setInvalidQuestions] = useState<string[]>([]);
+  // Views
+  const [isFormView, setIsFormView] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState<any>(defaultQuestion);
+  const [saving, setSaving] = useState(false);
+
+  // Deletion
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState<string | null>(null);
+
+  // Upload modal logic (simplified for this rewrite)
+  const [_uploadModalOpen] = useState(false);
 
   useEffect(() => {
-    fetchTest();
+    fetchTestAndQuestions();
+    fetchTaxonomies();
   }, [id]);
 
-  const fetchTest = async () => {
+  const fetchTaxonomies = async () => {
     try {
-      const res = await api.get(`/tests/${id}`);
-      setTest(res.data);
-      if (res.data.questions && Array.isArray(res.data.questions)) {
-        setQuestions(res.data.questions);
-      }
+      const res = await api.get('/test-taxonomy');
+      const data = res.data;
+      setSections(data.filter((d: any) => d.type === 'section').map((d: any) => ({ label: d.name, value: d.name })));
+      setTopics(data.filter((d: any) => d.type === 'topic').map((d: any) => ({ label: d.name, value: d.name })));
+      setSubtopics(data.filter((d: any) => d.type === 'subtopic').map((d: any) => ({ label: d.name, value: d.name })));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchTestAndQuestions = async () => {
+    try {
+      const testRes = await api.get(`/tests/${id}`);
+      const qRes = await api.get(`/tests/${id}/questions`);
+      setTest(testRes.data);
+      setQuestions(qRes.data);
     } catch (error) {
-      showToast("Failed to load test", "error");
+      showToast("Failed to load test details or questions", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const saveQuestions = async () => {
+  const handleCreateTaxonomy = async (inputValue: string, type: 'section'|'topic'|'subtopic') => {
+    try {
+      const res = await api.post('/test-taxonomy', { type, name: inputValue });
+      const newOption = { label: res.data.name, value: res.data.name };
+      if (type === 'section') {
+        setSections([...sections, newOption]);
+        setFormData({ ...formData, section: res.data.name });
+      } else if (type === 'topic') {
+        setTopics([...topics, newOption]);
+        setFormData({ ...formData, topic: res.data.name });
+      } else if (type === 'subtopic') {
+        setSubtopics([...subtopics, newOption]);
+        setFormData({ ...formData, subtopic: res.data.name });
+      }
+      showToast(`Created new ${type}: ${inputValue}`, "success");
+    } catch (error) {
+      showToast(`Failed to create ${type}`, "error");
+    }
+  };
+
+  const openAddForm = () => {
+    setFormData({ ...defaultQuestion, options: [
+      { id: '1', text: '' },
+      { id: '2', text: '' },
+      { id: '3', text: '' },
+      { id: '4', text: '' }
+    ]});
+    setEditingId(null);
+    setIsFormView(true);
+  };
+
+  const openEditForm = (q: TestQuestion) => {
+    setFormData({ ...q });
+    setEditingId(q.id);
+    setIsFormView(true);
+  };
+
+  const handleSaveQuestion = async (addAnother: boolean = false) => {
+    // Validation
+    if (!formData.question_text.trim()) {
+      showToast("Question text is required", "error");
+      return;
+    }
+    if (!formData.correct_answer) {
+      showToast("Please select a correct answer", "error");
+      return;
+    }
+
     setSaving(true);
     try {
-      const updatedTest = { ...test, questions };
-      await api.put(`/tests/${id}`, updatedTest);
-      showToast("Questions saved successfully!", "success");
-      navigate('/tests');
+      // Clean up dynamic options depending on type
+      let payload = { ...formData };
+      if (payload.question_type === 'true_false') {
+        payload.options = [
+          { id: '1', text: 'True' },
+          { id: '2', text: 'False' }
+        ];
+      }
+      
+      // Enforce nulls for optional overrides
+      if (payload.negative_marks === 0) payload.negative_marks = null;
+      if (payload.time_limit_seconds === 0) payload.time_limit_seconds = null;
+
+      if (editingId) {
+        await api.put(`/tests/${id}/questions/${editingId}`, payload);
+        showToast("Question updated", "success");
+      } else {
+        await api.post(`/tests/${id}/questions`, payload);
+        showToast("Question added", "success");
+      }
+
+      await fetchTestAndQuestions();
+      
+      if (addAnother) {
+        openAddForm();
+      } else {
+        setIsFormView(false);
+      }
     } catch (error) {
-      showToast("Failed to save questions", "error");
+      showToast("Failed to save question", "error");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadFile) return;
-    
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', uploadFile);
-    
+  const confirmDeleteQuestion = async () => {
+    if (!questionToDelete) return;
     try {
-      const res = await api.post(`/tests/${id}/upload-questions`, formData);
-      
-      const { valid, invalid } = res.data;
-      
-      if (valid && valid.length > 0) {
-        setQuestions(prev => [...prev, ...valid]);
-        showToast(`Successfully added ${valid.length} questions`, "success");
-      }
-      
-      if (invalid && invalid.length > 0) {
-        setInvalidQuestions(invalid);
-        setInvalidQuestionsModalOpen(true);
-      }
-      
-      setUploadModalOpen(false);
-      setUploadFile(null);
+      await api.delete(`/tests/${id}/questions/${questionToDelete}`);
+      showToast("Question deleted", "success");
+      setQuestions(questions.filter(q => q.id !== questionToDelete));
     } catch (error) {
-      showToast("Failed to upload questions", "error");
+      showToast("Failed to delete question", "error");
     } finally {
-      setUploading(false);
+      setDeleteDialogOpen(false);
+      setQuestionToDelete(null);
     }
   };
 
-  const addQuestion = () => {
-    const newQuestion: Question = {
-      id: `q_${Date.now()}`,
-      text: '',
-      options: ['', '', '', ''],
-      correct_answer: '',
-      section: '',
-      topic: '',
-      subtopic: '',
-      time_limit_seconds: 0,
-      explanation: '',
-      difficulty: 'Medium'
-    };
-    setQuestions([...questions, newQuestion]);
+  // Dynamic Options Handlers
+  const addOption = () => {
+    const newOptions = [...formData.options, { id: Date.now().toString(), text: '' }];
+    setFormData({ ...formData, options: newOptions });
   };
 
-  const updateQuestionField = (qIndex: number, field: keyof Question, value: any) => {
-    const newQ = [...questions];
-    newQ[qIndex] = { ...newQ[qIndex], [field]: value };
-    setQuestions(newQ);
+  const removeOption = (optId: string) => {
+    const newOptions = formData.options.filter((o: any) => o.id !== optId);
+    setFormData({ ...formData, options: newOptions });
   };
 
-  const updateQuestionText = (qIndex: number, text: string) => {
-    const newQ = [...questions];
-    newQ[qIndex].text = text;
-    setQuestions(newQ);
+  const updateOptionText = (optId: string, text: string) => {
+    const newOptions = formData.options.map((o: any) => o.id === optId ? { ...o, text } : o);
+    setFormData({ ...formData, options: newOptions });
   };
-
-  const addOption = (qIndex: number) => {
-    const newQ = [...questions];
-    newQ[qIndex].options.push('');
-    setQuestions(newQ);
-  };
-
-  const removeOption = (qIndex: number, optIndex: number) => {
-    const newQ = [...questions];
-    const removedOption = newQ[qIndex].options[optIndex];
-    newQ[qIndex].options.splice(optIndex, 1);
-    
-    // If the removed option was the correct answer, reset correct answer
-    if (newQ[qIndex].correct_answer === removedOption) {
-      newQ[qIndex].correct_answer = '';
+  
+  // Toggle for multi select correct answers
+  const toggleCorrectAnswerMulti = (optText: string) => {
+    let currentAns = formData.correct_answer ? formData.correct_answer.split('||') : [];
+    if (currentAns.includes(optText)) {
+      currentAns = currentAns.filter((a: string) => a !== optText);
+    } else {
+      currentAns.push(optText);
     }
-    
-    setQuestions(newQ);
+    setFormData({ ...formData, correct_answer: currentAns.join('||') });
   };
 
-  const updateOption = (qIndex: number, optIndex: number, value: string) => {
-    const newQ = [...questions];
-    const oldVal = newQ[qIndex].options[optIndex];
-    newQ[qIndex].options[optIndex] = value;
-    
-    // Update correct answer if it matched the old value
-    if (newQ[qIndex].correct_answer === oldVal) {
-      newQ[qIndex].correct_answer = value;
-    }
-    
-    setQuestions(newQ);
-  };
-
-  const setCorrectAnswer = (qIndex: number, value: string) => {
-    const newQ = [...questions];
-    newQ[qIndex].correct_answer = value;
-    setQuestions(newQ);
-  };
-
-  const removeQuestion = (qIndex: number) => {
-    setQuestionToDelete(qIndex);
-    setDeleteDialogOpen(true);
-  };
-
-  const confirmDeleteQuestion = () => {
-    if (questionToDelete === null) return;
-    const newQ = [...questions];
-    newQ.splice(questionToDelete, 1);
-    setQuestions(newQ);
-    setQuestionToDelete(null);
-    setDeleteDialogOpen(false);
-    showToast("Question removed", "info");
-  };
-
-  if (loading) return <div className="p-8 text-secondaryText">Loading questions...</div>;
+  if (loading) return <div className="p-8 text-secondaryText">Loading...</div>;
   if (!test) return <div className="p-8 text-error">Test not found.</div>;
 
   return (
-    <div className="animate-fade-in max-w-5xl mx-auto pb-20">
-      <div className="flex items-center gap-4 mb-8">
-        <button onClick={() => navigate('/tests')} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-          <ArrowLeft size={24} className="text-secondaryText" />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold text-primaryText">Manage Questions</h1>
-          <p className="text-secondaryText">Editing questions for test: <span className="font-medium text-primaryBrand">{test.title}</span></p>
-        </div>
-        <div className="ml-auto flex gap-3">
-          <button onClick={() => setUploadModalOpen(true)} className="px-4 py-2 border border-gray-300 text-secondaryText font-medium rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2">
-            <Upload size={18} /> Bulk Upload
-          </button>
-          <button onClick={addQuestion} className="px-4 py-2 border border-primaryBrand text-primaryBrand font-medium rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2">
-            <Plus size={18} /> Add Question
-          </button>
-          <button onClick={saveQuestions} disabled={saving} className="btn-primary flex items-center gap-2">
-            <Save size={18} /> {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-6">
-        {questions.length === 0 ? (
-          <div className="card p-12 text-center text-secondaryText flex flex-col items-center">
-            <p className="mb-4">This test has no questions yet.</p>
-            <button onClick={addQuestion} className="btn-primary">Create First Question</button>
+    <div className="animate-fade-in max-w-6xl mx-auto pb-20 p-6">
+      {!isFormView ? (
+        // --- LIST VIEW ---
+        <>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex items-center gap-4">
+              <button onClick={() => navigate('/tests')} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <ArrowLeft size={24} className="text-secondaryText" />
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-primaryText">Manage Questions</h1>
+                <p className="text-secondaryText">Test: <span className="font-medium text-primaryBrand">{test.title}</span></p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => showToast('Feature is coming soon.', 'info')} className="px-4 py-2 border border-gray-300 text-secondaryText font-medium rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2">
+                <Upload size={18} /> Bulk Upload
+              </button>
+              <button onClick={openAddForm} className="btn-primary flex items-center gap-2">
+                <Plus size={18} /> Add New Question
+              </button>
+            </div>
           </div>
-        ) : (
-          questions.map((q, qIndex) => (
-            <div key={q.id} className="card p-6 animate-slide-up bg-white">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="font-bold text-primaryText text-lg">Question {qIndex + 1}</h3>
-                <button onClick={() => removeQuestion(qIndex)} className="text-secondaryText hover:text-error transition-colors p-1 rounded-md hover:bg-red-50">
-                  <Trash2 size={18} />
-                </button>
+
+          <div className="card overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-background">
+                <tr>
+                  <th className="px-6 py-4 font-medium text-secondaryText w-1/2">Question</th>
+                  <th className="px-6 py-4 font-medium text-secondaryText">Type</th>
+                  <th className="px-6 py-4 font-medium text-secondaryText">Categories</th>
+                  <th className="px-6 py-4 font-medium text-secondaryText">Marks</th>
+                  <th className="px-6 py-4 font-medium text-secondaryText text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-borderDark">
+                {questions.length === 0 ? (
+                  <tr><td colSpan={5} className="px-6 py-8 text-center text-secondaryText">No questions added yet. Click "Add New Question" to begin.</td></tr>
+                ) : (
+                  questions.map((q, idx) => (
+                    <tr key={q.id} className="hover:bg-background/50 transition-colors">
+                      <td className="px-6 py-4 text-primaryText">
+                        <p className="font-medium line-clamp-2">{idx + 1}. {q.question_text}</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium uppercase">{q.question_type.replace('_', ' ')}</span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-secondaryText">
+                        {q.section && <div><span className="font-medium">Sec:</span> {q.section}</div>}
+                        {q.topic && <div><span className="font-medium">Topic:</span> {q.topic}</div>}
+                        {q.subtopic && <div><span className="font-medium">Sub:</span> {q.subtopic}</div>}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-green-600">
+                        {q.marks.toFixed(1)}
+                        {q.negative_marks && <span className="text-red-500 block text-xs">-{q.negative_marks}</span>}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => openEditForm(q)} className="p-2 text-primaryBrand hover:bg-primaryBrand/10 rounded transition-colors"><Edit2 size={18} /></button>
+                          <button onClick={() => { setQuestionToDelete(q.id); setDeleteDialogOpen(true); }} className="p-2 text-error hover:bg-error/10 rounded transition-colors"><Trash2 size={18} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        // --- FORM VIEW ---
+        <div className="animate-slide-up">
+          <div className="flex items-center gap-4 mb-6">
+            <button onClick={() => setIsFormView(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+              <ArrowLeft size={24} className="text-secondaryText" />
+            </button>
+            <h1 className="text-2xl font-bold text-primaryText">{editingId ? 'Edit Question' : 'Add New Question'}</h1>
+          </div>
+
+          <div className="space-y-6">
+            
+            {/* Section 1: Setup */}
+            <div className="card p-6 space-y-4">
+              <h3 className="text-lg font-bold text-primaryText border-b border-border pb-2">1. Question Setup</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Question Type *</label>
+                  <select className="input-field bg-white" value={formData.question_type} onChange={e => setFormData({...formData, question_type: e.target.value})}>
+                    <option value="single_select">Single Select</option>
+                    <option value="multi_select">Multi-Select</option>
+                    <option value="true_false">True / False</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Section</label>
+                  <CreatableSelect 
+                    isClearable 
+                    options={sections}
+                    value={formData.section ? {label: formData.section, value: formData.section} : null}
+                    onChange={(val) => setFormData({...formData, section: val ? val.value : ''})}
+                    onCreateOption={(val) => handleCreateTaxonomy(val, 'section')}
+                    placeholder="e.g. Quantitative"
+                    menuPortalTarget={document.body}
+                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Topic</label>
+                  <CreatableSelect 
+                    isClearable 
+                    options={topics}
+                    value={formData.topic ? {label: formData.topic, value: formData.topic} : null}
+                    onChange={(val) => setFormData({...formData, topic: val ? val.value : ''})}
+                    onCreateOption={(val) => handleCreateTaxonomy(val, 'topic')}
+                    placeholder="e.g. Mathematics"
+                    menuPortalTarget={document.body}
+                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Sub-Topic</label>
+                  <CreatableSelect 
+                    isClearable 
+                    options={subtopics}
+                    value={formData.subtopic ? {label: formData.subtopic, value: formData.subtopic} : null}
+                    onChange={(val) => setFormData({...formData, subtopic: val ? val.value : ''})}
+                    onCreateOption={(val) => handleCreateTaxonomy(val, 'subtopic')}
+                    placeholder="e.g. Algebra"
+                    menuPortalTarget={document.body}
+                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Content */}
+            <div className="card p-6 space-y-4">
+              <h3 className="text-lg font-bold text-primaryText border-b border-border pb-2">2. Question Content</h3>
+              <div>
+                <label className="block text-sm font-medium text-secondaryText mb-1">Question Text *</label>
+                <textarea required rows={4} className="input-field" placeholder="Enter your question here..." value={formData.question_text} onChange={e => setFormData({...formData, question_text: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Question Note (Optional)</label>
+                  <input type="text" placeholder="e.g. Read the following passage carefully" className="input-field" value={formData.question_note} onChange={e => setFormData({...formData, question_note: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Question Image URL (Optional)</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <ImageIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                      <input type="text" placeholder="https://..." className="input-field pl-10" value={formData.question_image_url} onChange={e => setFormData({...formData, question_image_url: e.target.value})} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Options */}
+            <div className="card p-6 space-y-4">
+              <div className="flex justify-between items-center border-b border-border pb-2">
+                <h3 className="text-lg font-bold text-primaryText">3. Options & Answers</h3>
+                {formData.question_type !== 'true_false' && (
+                  <button type="button" onClick={addOption} className="text-sm font-medium text-primaryBrand flex items-center gap-1 hover:underline">
+                    <Plus size={16} /> Add Option
+                  </button>
+                )}
               </div>
               
-              <div className="mb-6">
-                <input 
-                  type="text" 
-                  value={q.text} 
-                  onChange={(e) => updateQuestionText(qIndex, e.target.value)} 
-                  placeholder="Enter the question text here..." 
-                  className="input-field text-lg py-3 font-medium bg-gray-50/50" 
-                />
-              </div>
-
-              <div className="space-y-3 pl-4 border-l-2 border-primaryBrand/20">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-sm font-semibold text-secondaryText uppercase tracking-wider">Options</h4>
-                  <button onClick={() => addOption(qIndex)} className="text-xs font-medium text-primaryBrand hover:underline flex items-center gap-1">
-                    <Plus size={14} /> Add Option
-                  </button>
-                </div>
-                
-                {q.options.map((opt, optIndex) => (
-                  <div key={optIndex} className="flex items-center gap-3">
-                    <input 
-                      type="radio" 
-                      name={`correct_${q.id}`} 
-                      checked={q.correct_answer === opt && opt.trim() !== ''} 
-                      onChange={() => setCorrectAnswer(qIndex, opt)}
-                      className="w-4 h-4 text-primaryBrand border-border focus:ring-primaryBrand"
-                      title="Mark as correct answer"
-                    />
-                    <div className="flex-1 relative">
-                      <input 
-                        type="text" 
-                        value={opt} 
-                        onChange={(e) => updateOption(qIndex, optIndex, e.target.value)} 
-                        placeholder={`Option ${optIndex + 1}`} 
-                        className={`input-field pr-10 ${q.correct_answer === opt && opt.trim() !== '' ? 'border-primaryBrand bg-blue-50/30' : ''}`} 
-                      />
-                      {q.options.length > 2 && (
-                        <button 
-                          onClick={() => removeOption(qIndex, optIndex)} 
-                          className="absolute right-2 top-2.5 text-borderDark hover:text-error transition-colors"
-                          title="Remove option"
-                        >
-                          <X size={16} />
+              <div className="space-y-3">
+                {formData.question_type === 'true_false' ? (
+                  <div className="flex gap-6 mt-4">
+                    <label className="flex items-center gap-2 cursor-pointer p-3 border rounded-lg hover:bg-gray-50 flex-1">
+                      <input type="radio" name="tf_answer" className="w-4 h-4 text-primaryBrand" checked={formData.correct_answer === 'True'} onChange={() => setFormData({...formData, correct_answer: 'True'})} />
+                      <span className="font-medium">True</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer p-3 border rounded-lg hover:bg-gray-50 flex-1">
+                      <input type="radio" name="tf_answer" className="w-4 h-4 text-primaryBrand" checked={formData.correct_answer === 'False'} onChange={() => setFormData({...formData, correct_answer: 'False'})} />
+                      <span className="font-medium">False</span>
+                    </label>
+                  </div>
+                ) : (
+                  formData.options.map((opt: any, idx: number) => (
+                    <div key={opt.id} className={`flex items-start gap-3 p-3 border rounded-xl transition-colors ${formData.correct_answer.includes(opt.text) && opt.text ? 'border-primaryBrand bg-primaryBrand/5' : 'border-gray-200 bg-white'}`}>
+                      <div className="pt-2.5">
+                        {formData.question_type === 'single_select' ? (
+                           <input type="radio" name="correct_ans" className="w-5 h-5 text-primaryBrand" checked={formData.correct_answer === opt.text && opt.text !== ''} onChange={() => setFormData({...formData, correct_answer: opt.text})} />
+                        ) : (
+                           <input type="checkbox" className="w-5 h-5 text-primaryBrand rounded" checked={formData.correct_answer.split('||').includes(opt.text) && opt.text !== ''} onChange={() => toggleCorrectAnswerMulti(opt.text)} />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <input type="text" placeholder={`Option ${idx + 1}`} className="w-full border-none bg-transparent focus:ring-0 p-2 text-primaryText font-medium" value={opt.text} onChange={e => updateOptionText(opt.id, e.target.value)} />
+                      </div>
+                      {formData.options.length > 2 && (
+                        <button type="button" onClick={() => removeOption(opt.id)} className="p-2 text-gray-400 hover:text-error transition-colors mt-1">
+                          <X size={18} />
                         </button>
                       )}
                     </div>
-                    {q.correct_answer === opt && opt.trim() !== '' && (
-                      <span className="text-xs font-medium text-primaryBrand whitespace-nowrap bg-blue-50 px-2 py-1 rounded-md">
-                        Correct Answer
-                      </span>
-                    )}
-                  </div>
-                ))}
+                  ))
+                )}
+                <p className="text-sm text-secondaryText mt-2">
+                  ℹ️ {formData.question_type === 'multi_select' ? 'Check the boxes next to all correct answers.' : 'Select the radio button next to the single correct answer.'}
+                </p>
               </div>
+            </div>
 
-              {/* Advanced Settings */}
-              <div className="mt-6 pt-6 border-t border-border/50 space-y-4">
-                <h4 className="text-sm font-semibold text-secondaryText uppercase tracking-wider mb-2">Advanced Metadata</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-secondaryText mb-1">Section</label>
-                    <input type="text" value={q.section || ''} onChange={(e) => updateQuestionField(qIndex, 'section', e.target.value)} placeholder="e.g. Aptitude" className="input-field text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-secondaryText mb-1">Topic</label>
-                    <input type="text" value={q.topic || ''} onChange={(e) => updateQuestionField(qIndex, 'topic', e.target.value)} placeholder="e.g. Mathematics" className="input-field text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-secondaryText mb-1">Subtopic</label>
-                    <input type="text" value={q.subtopic || ''} onChange={(e) => updateQuestionField(qIndex, 'subtopic', e.target.value)} placeholder="e.g. Algebra" className="input-field text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-secondaryText mb-1">Time Limit (seconds)</label>
-                    <input type="number" min="0" value={q.time_limit_seconds || 0} onChange={(e) => updateQuestionField(qIndex, 'time_limit_seconds', parseInt(e.target.value) || 0)} className="input-field text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-secondaryText mb-1">Difficulty</label>
-                    <select value={q.difficulty || 'Medium'} onChange={(e) => updateQuestionField(qIndex, 'difficulty', e.target.value)} className="input-field text-sm bg-white">
-                      <option>Easy</option>
-                      <option>Medium</option>
-                      <option>Hard</option>
-                    </select>
-                  </div>
+            {/* Section 4: Scoring & Explanations */}
+            <div className="card p-6 space-y-4">
+              <h3 className="text-lg font-bold text-primaryText border-b border-border pb-2">4. Scoring & Explanations</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Marks Awarded *</label>
+                  <input required type="number" step="0.1" min="0" className="input-field" value={formData.marks} onChange={e => setFormData({...formData, marks: parseFloat(e.target.value) || 0})} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-secondaryText mb-1">Explanation (Optional)</label>
-                  <textarea value={q.explanation || ''} onChange={(e) => updateQuestionField(qIndex, 'explanation', e.target.value)} placeholder="Explain the correct answer..." rows={2} className="input-field text-sm"></textarea>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Negative Marks Override</label>
+                  <input type="number" step="0.1" min="0" placeholder="e.g. 0.25" className="input-field bg-amber-50 border-amber-200" value={formData.negative_marks || ''} onChange={e => setFormData({...formData, negative_marks: parseFloat(e.target.value)})} />
+                  <p className="text-xs text-amber-600 mt-1">Overrides test default. Leave blank to use default.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-secondaryText mb-1">Time Limit Override (Secs)</label>
+                  <input type="number" min="0" placeholder="e.g. 120" className="input-field bg-amber-50 border-amber-200" value={formData.time_limit_seconds || ''} onChange={e => setFormData({...formData, time_limit_seconds: parseInt(e.target.value)})} />
+                  <p className="text-xs text-amber-600 mt-1">Overrides test default. Leave blank to use default.</p>
+                </div>
+              </div>
+              
+              <div className="mt-4 border-t pt-4">
+                <label className="block text-sm font-medium text-secondaryText mb-1">Explanation Text (Solution)</label>
+                <textarea rows={3} className="input-field" placeholder="Explain the reasoning behind the correct answer..." value={formData.explanation} onChange={e => setFormData({...formData, explanation: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-secondaryText mb-1">Explanation Image URL (Optional)</label>
+                <div className="relative">
+                  <ImageIcon className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                  <input type="text" placeholder="https://..." className="input-field pl-10" value={formData.explanation_image_url} onChange={e => setFormData({...formData, explanation_image_url: e.target.value})} />
                 </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
 
-      <ConfirmDialog 
-        isOpen={deleteDialogOpen} 
-        onClose={() => setDeleteDialogOpen(false)} 
-        onConfirm={confirmDeleteQuestion} 
-        title="Remove Question" 
-        message="Are you sure you want to remove this question? You will still need to save changes for it to take effect." 
-      />
-
-      <Modal isOpen={uploadModalOpen} onClose={() => setUploadModalOpen(false)} title="Bulk Upload Questions">
-        <form onSubmit={handleUpload} className="space-y-4">
-          <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-800 mb-4">
-            <p className="mb-2 font-medium">Download Sample Formats:</p>
-            <div className="flex gap-4">
-              <a href="/sample_questions.xlsx" download className="text-primaryBrand hover:underline">Excel Sample (.xlsx)</a>
-              <a href="/sample_questions.pdf" download className="text-primaryBrand hover:underline">PDF Sample (.pdf)</a>
+            {/* Actions Toolbar */}
+            <div className="flex items-center justify-end gap-4 pt-4 border-t border-border">
+              <button type="button" onClick={() => setIsFormView(false)} className="px-6 py-2 text-secondaryText font-medium hover:text-primaryText transition-colors">
+                Cancel
+              </button>
+              <button type="button" onClick={() => handleSaveQuestion(true)} disabled={saving} className="px-6 py-2 bg-primaryBrand/10 text-primaryBrand font-medium rounded-xl hover:bg-primaryBrand/20 transition-colors">
+                {saving ? 'Saving...' : 'Save & Add Another'}
+              </button>
+              <button type="button" onClick={() => handleSaveQuestion(false)} disabled={saving} className="btn-primary">
+                {saving ? 'Saving...' : 'Save Question'}
+              </button>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-secondaryText mb-1">Select File (PDF or Excel, Max 5MB)</label>
-            <input 
-              type="file" 
-              accept=".pdf,.xlsx,.xls"
-              onChange={(e) => {
-                const file = e.target.files ? e.target.files[0] : null;
-                if (file && file.size > 5 * 1024 * 1024) {
-                  showToast('File must be less than 5MB', 'error');
-                  e.target.value = '';
-                  setUploadFile(null);
-                  return;
-                }
-                setUploadFile(file);
-              }}
-              className="w-full text-sm text-secondaryText file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primaryBrand hover:file:bg-blue-100" 
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setUploadModalOpen(false)} className="px-4 py-2 text-secondaryText hover:text-primaryText font-medium">Cancel</button>
-            <button type="submit" disabled={uploading || !uploadFile} className="btn-primary flex items-center gap-2">
-              {uploading ? 'Uploading...' : 'Upload'}
-            </button>
-          </div>
-        </form>
-      </Modal>
 
-      <Modal isOpen={invalidQuestionsModalOpen} onClose={() => setInvalidQuestionsModalOpen(false)} title="Some Questions Failed">
-        <div className="space-y-4">
-          <p className="text-sm text-secondaryText">The following questions did not match the required multiple-choice format and were skipped:</p>
-          <div className="max-h-60 overflow-y-auto bg-gray-50 rounded-md p-3 border border-border">
-            <ul className="list-disc pl-5 text-sm text-error space-y-1">
-              {invalidQuestions.map((iq, idx) => (
-                <li key={idx}>{iq}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="flex justify-end mt-4">
-            <button onClick={() => setInvalidQuestionsModalOpen(false)} className="btn-primary">Acknowledge</button>
           </div>
         </div>
-      </Modal>
+      )}
+
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        title="Delete Question"
+        message="Are you sure you want to delete this question? This action cannot be undone."
+        onConfirm={confirmDeleteQuestion}
+        onClose={() => setDeleteDialogOpen(false)}
+      />
     </div>
   );
 };

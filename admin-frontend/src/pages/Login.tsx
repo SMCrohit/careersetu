@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { Lock, User, Eye, EyeOff } from 'lucide-react';
 
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
+
 const Login = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -14,11 +17,14 @@ const Login = () => {
     e.preventDefault();
     setError('');
     try {
-      const formData = new URLSearchParams();
-      formData.append('username', username);
-      formData.append('password', password);
+      // 1. Authenticate with Firebase directly
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await userCredential.user.getIdToken();
       
-      const response = await api.post('/admin/login', formData);
+      // 2. Send the secure Firebase token to our unified backend API
+      const response = await api.post('/auth/firebase-login', { id_token: idToken });
+      
+      // 3. Save the returned custom access token
       localStorage.setItem('adminToken', response.data.access_token);
       navigate('/');
     } catch (err: any) {
@@ -43,15 +49,15 @@ const Login = () => {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-secondaryText mb-1">Username</label>
+            <label className="block text-sm font-medium text-secondaryText mb-1">Email</label>
             <div className="relative">
               <User className="absolute left-3 top-2.5 text-borderDark" size={18} />
               <input 
-                type="text" 
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="input-field pl-10"
-                placeholder="Enter admin username"
+                placeholder="Enter admin email"
                 required
               />
             </div>
