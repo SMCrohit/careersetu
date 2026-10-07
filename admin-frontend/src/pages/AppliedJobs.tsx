@@ -3,9 +3,9 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
-  Users, Briefcase, FileText, Calendar, 
-  ExternalLink, Mail, CheckCircle, Clock,
-  XCircle, ChevronRight, Download, FileUp, Filter, FileSpreadsheet, FileDown, ChevronDown
+  Briefcase, FileText, Calendar, 
+  ExternalLink, Mail,
+  XCircle, Download, FileUp, Filter, FileSpreadsheet, FileDown, ChevronDown
 } from 'lucide-react';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
@@ -186,7 +186,6 @@ const AppliedJobs = () => {
   };
 
 
-  const fetchApplications = () => fetchApplicationsWithParams();
 
   const handleReview = (app: JobApplication) => {
     setSelectedApp(app);

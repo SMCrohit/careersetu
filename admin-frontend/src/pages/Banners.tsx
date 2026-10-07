@@ -362,7 +362,6 @@ const Banners = ({ isSettingsTab = false }: { isSettingsTab?: boolean }) => {
           loading={loading}
           emptyStateMessage="No banners found."
           emptyStateIcon={<Image size={36} className="text-border" />}
-          onRowClick={openEditModal}
         />
       )}
 

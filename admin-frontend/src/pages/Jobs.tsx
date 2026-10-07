@@ -40,8 +40,8 @@ const defaultFormData = {
   employer_contact_email: '', external_apply_url: '', company_website: '',
   vacancies_count: 1, shift_timing: 'Day Shift', salary_min: 0, salary_max: 0,
   salary_type: 'Per Year', currency: 'INR', experience_required_years: 0,
-  education_required: 'Any Graduate', skills_required: '', languages_required: '',
-  description: '', screening_questions: [], is_cover_letter_required: false
+  education_required: 'Any Graduate', skills_required: [] as string[], languages_required: [] as string[],
+  description: '', screening_questions: [] as string[], is_cover_letter_required: false
 };
 
 const Jobs = () => {
@@ -67,7 +67,7 @@ const Jobs = () => {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState(defaultFormData);
+  const [formData, setFormData] = useState<any>(defaultFormData);
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const [pincodeData, setPincodeData] = useState<any[]>([]);
   const [skillInput, setSkillInput] = useState('');
@@ -143,7 +143,7 @@ const Jobs = () => {
   const toggleLanguage = (lang: string) => {
     const currentLangs = Array.isArray(formData.languages_required) ? formData.languages_required : [];
     if (currentLangs.includes(lang)) {
-      setFormData({...formData, languages_required: currentLangs.filter(l => l !== lang) as any});
+      setFormData({...formData, languages_required: currentLangs.filter((l: string) => l !== lang) as any});
     } else {
       setFormData({...formData, languages_required: [...currentLangs, lang] as any});
     }
@@ -760,7 +760,7 @@ const Jobs = () => {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">
-                      {(Array.isArray(formData.skills_required) ? formData.skills_required : []).map(skill => (
+                      {(Array.isArray(formData.skills_required) ? formData.skills_required : []).map((skill: string) => (
                         <span key={skill} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium flex items-center gap-1 border border-blue-200">
                           {skill} <button type="button" onClick={() => removeSkill(skill)} className="hover:text-blue-900 ml-1">✕</button>
                         </span>
