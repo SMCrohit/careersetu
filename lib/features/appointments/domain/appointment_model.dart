@@ -6,6 +6,8 @@ class Appointment {
   final String date;
   final String time;
   final String status; // 'upcoming', 'completed', 'cancelled'
+  final String consultationMode;
+  final String? notesByStudent;
 
   Appointment({
     required this.id,
@@ -13,6 +15,8 @@ class Appointment {
     required this.date,
     required this.time,
     required this.status,
+    required this.consultationMode,
+    this.notesByStudent,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
@@ -35,6 +39,8 @@ class Appointment {
       date: json['appointment_date'] ?? '',
       time: json['appointment_time'] ?? '',
       status: json['status'] ?? 'upcoming',
+      consultationMode: json['consultation_mode'] ?? 'In-Person',
+      notesByStudent: json['notes_by_student'],
     );
   }
 }

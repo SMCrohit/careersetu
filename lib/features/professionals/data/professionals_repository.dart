@@ -9,30 +9,17 @@ class ProfessionalsRepository {
 
   ProfessionalsRepository(this._apiClient);
 
-  Future<List<Professional>> fetchProfessionals({int page = 1, int limit = 10, String query = ''}) async {
-    final response = await _apiClient.get('/professionals');
+  Future<List<Professional>> fetchProfessionals({int page = 1, int limit = 10, String query = '', String profession = 'All', String city = 'All'}) async {
+    final skip = (page - 1) * limit;
+    String url = '/professionals?skip=$skip&limit=$limit';
+    if (query.isNotEmpty) url += '&search=$query';
+    if (profession != 'All') url += '&profession=$profession';
+    if (city != 'All') url += '&location_city=$city';
+
+    final response = await _apiClient.get(url);
     final List<dynamic> data = response.data;
     
-    List<Professional> allProfessionals = data.map((json) => Professional.fromJson(json)).toList();
-
-    // Filter by query locally until backend supports it
-    if (query.isNotEmpty) {
-      final q = query.toLowerCase();
-      allProfessionals = allProfessionals.where((d) => 
-        d.name.toLowerCase().contains(q) || 
-        d.specialty.toLowerCase().contains(q) ||
-        d.clinic.toLowerCase().contains(q)
-      ).toList();
-    }
-
-    // Pagination locally until backend supports it
-    final startIndex = (page - 1) * limit;
-    if (startIndex >= allProfessionals.length) {
-      return [];
-    }
-
-    final endIndex = (startIndex + limit) > allProfessionals.length ? allProfessionals.length : (startIndex + limit);
-    return allProfessionals.sublist(startIndex, endIndex);
+    return data.map((json) => Professional.fromJson(json)).toList();
   }
 
   Future<List<ProfessionalReview>> fetchReviews(String professionalId) async {
@@ -59,6 +46,15 @@ class ProfessionalsRepository {
       },
     );
     return ProfessionalReview.fromJson(response.data);
+  }
+
+  Future<List<String>> getBookedSlots(String professionalId, String date) async {
+    try {
+      final response = await _apiClient.get('/professionals/$professionalId/booked-slots?date=$date');
+      return (response.data as List).map((e) => e.toString()).toList();
+    } catch (e) {
+      return [];
+    }
   }
 }
 

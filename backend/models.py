@@ -205,12 +205,26 @@ class Professional(BaseModel):
     name = Column(String, index=True)
     profession = Column(String, default="Doctor")
     specialty = Column(String)
+    qualification = Column(String, nullable=True) # e.g. "MBBS, MD"
     clinic = Column(String)
     experience = Column(String)
+    years_experience_numeric = Column(Integer, default=0)
     consultation_fee = Column(Numeric)
     image_url = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     default_rating = Column(Float, default=0.0)
+    
+    # Availability
+    available_days = Column(JSON, default=list) # e.g. ["Monday", "Wednesday"]
+    time_slots = Column(JSON, default=list) # e.g. ["10:00 AM", "02:00 PM"]
+    max_bookings_per_slot = Column(Integer, default=1)
+    
+    # New fields for Phase 2
+    is_featured = Column(Boolean, default=False)
+    consultation_mode = Column(JSON, default=list) # e.g. ["In-Person", "Online"]
+    languages_spoken = Column(JSON, default=list) # e.g. ["English", "Hindi"]
+    location_city = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
 
 class ProfessionalReview(BaseModel):
     __tablename__ = "professional_reviews"
@@ -319,6 +333,15 @@ class ProfessionalAppointment(BaseModel):
     appointment_date = Column(Date)
     appointment_time = Column(Time)
     status = Column(String)
+    
+    # New fields for Phase 2
+    consultation_mode = Column(String, default="In-Person")
+    notes_by_student = Column(Text, nullable=True)
+    notes_by_admin = Column(Text, nullable=True)
+    professional_notified_at = Column(DateTime, nullable=True)
+    student_contact_shared_at = Column(DateTime, nullable=True)
+    cancellation_reason = Column(Text, nullable=True)
+    cancelled_by = Column(String, nullable=True)
 
     user = relationship("User")
     professional = relationship("Professional")

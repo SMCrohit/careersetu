@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
-import { CheckCircle, Clock, Send, Calendar, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Filter } from 'lucide-react';
+import { CheckCircle, Clock, Send, Calendar, Download, ChevronDown, FileText, FileSpreadsheet, FileDown, Filter, MessageCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { DataTable, type Column } from '../components/DataTable';
 import * as XLSX from 'xlsx';
@@ -25,6 +25,8 @@ interface Appointment {
   appointment_date: string;
   appointment_time: string;
   status: string;
+  consultation_mode?: string;
+  notes_by_student?: string;
   user: User;
   professional: Professional;
 }
@@ -169,6 +171,11 @@ const Appointments = () => {
         <div>
           <div className="font-medium text-primaryText">{appt.user?.full_name || 'Unknown User'}</div>
           <div className="text-xs text-secondaryText">{appt.user?.mobile_number || ''}</div>
+          {appt.notes_by_student && (
+            <div className="mt-1 text-xs italic text-gray-500 bg-gray-50 p-1 rounded border border-gray-100 max-w-[200px] truncate" title={appt.notes_by_student}>
+              "{appt.notes_by_student}"
+            </div>
+          )}
         </div>
       )
     },
@@ -188,7 +195,9 @@ const Appointments = () => {
       cell: (appt) => (
         <div className="text-secondaryText">
           {appt.appointment_date} <br/>
-          <span className="text-xs">{appt.appointment_time}</span>
+          <span className="text-xs font-semibold">{appt.appointment_time}</span>
+          <br/>
+          <span className="text-[10px] uppercase tracking-wider text-primaryBrand/70 font-semibold bg-primaryBrand/10 px-1 py-0.5 rounded">{appt.consultation_mode || 'In-Person'}</span>
         </div>
       )
     },
@@ -200,14 +209,25 @@ const Appointments = () => {
     {
       header: 'Actions',
       cell: (appt) => (
-        <div className="text-right">
+        <div className="text-right flex items-center justify-end gap-2">
           {appt.status === 'pending' && (
-            <button 
-              onClick={() => updateStatus(appt.id, 'sent_to_doctor')}
-              className="px-3 py-1.5 bg-primaryBrand text-white rounded text-sm font-medium hover:bg-opacity-90 transition-colors"
-            >
-              Send to Professional
-            </button>
+            <>
+              <a 
+                href={`https://wa.me/?text=${encodeURIComponent(`Hello ${appt.professional.name},\n\nYou have a new ${appt.consultation_mode || 'In-Person'} booking request from ${appt.user.full_name} on ${appt.appointment_date} at ${appt.appointment_time}.\n\nPlease reply to confirm if you are available.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 bg-green-50 text-green-600 rounded hover:bg-green-100 transition-colors border border-green-200"
+                title="Notify via WhatsApp"
+              >
+                <MessageCircle size={18} />
+              </a>
+              <button 
+                onClick={() => updateStatus(appt.id, 'sent_to_doctor')}
+                className="px-3 py-1.5 bg-primaryBrand text-white rounded text-sm font-medium hover:bg-opacity-90 transition-colors whitespace-nowrap"
+              >
+                Confirm Booking
+              </button>
+            </>
           )}
           {appt.status === 'sent_to_doctor' && (
             <button 

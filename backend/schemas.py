@@ -221,14 +221,26 @@ class ProfessionalBase(BaseModel):
     name: str
     profession: str = "Doctor"
     specialty: str
+    qualification: Optional[str] = None
     clinic: str
     experience: str
+    years_experience_numeric: Optional[int] = 0
     consultation_fee: float
     image_url: Optional[str] = None
     description: Optional[str] = None
     default_rating: float = 0.0
     reviews: Optional[int] = 0
     rating: Optional[float] = None
+    
+    # Availability
+    available_days: Optional[list] = []
+    time_slots: Optional[list] = []
+    max_bookings_per_slot: Optional[int] = 1
+    
+    # New fields for Phase 2
+    is_featured: Optional[bool] = False
+    consultation_mode: Optional[list] = []
+    languages_spoken: Optional[list] = []
 
 class ProfessionalReviewBase(BaseModel):
     professional_id: UUID
@@ -337,11 +349,18 @@ class ProfessionalAppointmentBase(BaseModel):
     appointment_date: str
     appointment_time: str
     status: str
+    consultation_mode: Optional[str] = "In-Person"
+    notes_by_student: Optional[str] = None
+    notes_by_admin: Optional[str] = None
+    cancellation_reason: Optional[str] = None
+    cancelled_by: Optional[str] = None
 
 class ProfessionalAppointmentCreate(BaseModel):
     professional_id: UUID
     appointment_date: str
     appointment_time: str
+    consultation_mode: str = "In-Person"
+    notes_by_student: Optional[str] = None
     status: str = "pending"
 
 class ProfessionalAppointment(ProfessionalAppointmentBase, ORMBase):

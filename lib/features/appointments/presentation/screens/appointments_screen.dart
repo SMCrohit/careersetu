@@ -161,6 +161,42 @@ class AppointmentsScreen extends ConsumerWidget {
                       const Icon(Icons.chevron_right, color: AppColors.secondaryText),
                     ],
                   ),
+                  if (!isPast) ...[
+                    const Divider(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Cancel Appointment'),
+                                content: const Text('Are you sure you want to cancel this appointment?'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('No')),
+                                  TextButton(
+                                    onPressed: () {
+                                      ref.read(appointmentsProvider.notifier).cancelAppointment(appt.id);
+                                      Navigator.pop(ctx);
+                                      CustomToast.showSuccess(context, 'Appointment cancelled');
+                                    },
+                                    child: const Text('Yes, Cancel', style: TextStyle(color: Colors.red)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Cancel Appointment'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -8,7 +8,7 @@ from pypdf import PdfReader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import timedelta, datetime, date
 import models, schemas, auth
 from database import engine, get_db
@@ -830,8 +830,8 @@ async def upload_questions(test_id: str, file: UploadFile = File(...), admin: st
 
 # Doctors CRUD
 @app.get("/api/professionals", response_model=list[schemas.Professional])
-def get_professionals(db: Session = Depends(get_db)):
-    results = db.query(
+def get_professionals(skip: int = 0, limit: int = 50, profession: str = None, location_city: str = None, search: str = None, db: Session = Depends(get_db)):
+    query = db.query(
         models.Professional,
         func.count(models.ProfessionalReview.id).label("reviews_count"),
         func.avg(models.ProfessionalReview.rating).label("avg_rating")
@@ -840,9 +840,28 @@ def get_professionals(db: Session = Depends(get_db)):
         models.ProfessionalReview.professional_id == models.Professional.id
     ).filter(
         models.Professional.is_active == True
-    ).group_by(
+    )
+
+    if profession and profession != "All":
+        query = query.filter(models.Professional.profession == profession)
+    if location_city and location_city != "All":
+        query = query.filter(models.Professional.location_city == location_city)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                models.Professional.name.ilike(search_term),
+                models.Professional.specialty.ilike(search_term),
+                models.Professional.clinic.ilike(search_term)
+            )
+        )
+
+    results = query.group_by(
         models.Professional.id
-    ).all()
+    ).order_by(
+        models.Professional.is_featured.desc(),
+        models.Professional.name.asc()
+    ).offset(skip).limit(limit).all()
     
     professionals = []
     for prof, reviews_count, avg_rating in results:
@@ -851,6 +870,54 @@ def get_professionals(db: Session = Depends(get_db)):
         professionals.append(prof)
         
     return professionals
+
+@app.get("/api/admin/professionals")
+def get_admin_professionals(
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    profession: Optional[str] = None,
+    is_active: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    query = db.query(models.Professional)
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                models.Professional.name.ilike(search_term),
+                models.Professional.specialty.ilike(search_term),
+                models.Professional.clinic.ilike(search_term)
+            )
+        )
+        
+    if profession and profession != "All":
+        query = query.filter(models.Professional.profession == profession)
+        
+    if is_active and is_active != "All":
+        if is_active == "Active":
+            query = query.filter(models.Professional.is_active == True)
+        elif is_active == "Inactive":
+            query = query.filter(models.Professional.is_active == False)
+            
+    total = query.count()
+    
+    # Calculate offset
+    skip = (page - 1) * limit
+    professionals = query.order_by(
+        models.Professional.is_featured.desc(),
+        models.Professional.name.asc()
+    ).offset(skip).limit(limit).all()
+    
+    import math
+    return {
+        "items": professionals,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if limit > 0 else 0
+    }
 
 @app.post("/api/professionals", response_model=schemas.Professional)
 def create_professional(professional: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -884,6 +951,17 @@ def update_professional(professional_id: str, professional_update: schemas.Profe
     db.refresh(db_professional)
     auth.log_admin_action(db, admin, "UPDATE", "Professionals", professional_id)
     return db_professional
+
+@app.get("/api/professionals/{professional_id}/booked-slots", response_model=list[str])
+def get_professional_booked_slots(professional_id: str, date: str, db: Session = Depends(get_db)):
+    appointments = db.query(models.ProfessionalAppointment).filter(
+        models.ProfessionalAppointment.professional_id == professional_id,
+        models.ProfessionalAppointment.appointment_date == date,
+        models.ProfessionalAppointment.status != "cancelled",
+        models.ProfessionalAppointment.is_active == True
+    ).all()
+    
+    return [appt.appointment_time.strftime("%I:%M %p") for appt in appointments]
 
 # Professional Reviews
 @app.get("/api/professionals/{professional_id}/reviews", response_model=list[schemas.ProfessionalReview])
@@ -1283,6 +1361,22 @@ def create_appointment(app_req: schemas.ProfessionalAppointmentCreate, db: Sessi
     db.refresh(db_appointment)
     return db_appointment
 
+@app.delete("/api/users/me/appointments/{appointment_id}")
+def cancel_appointment(appointment_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    appointment = db.query(models.ProfessionalAppointment).filter(
+        models.ProfessionalAppointment.id == appointment_id,
+        models.ProfessionalAppointment.user_id == current_user.id
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    if appointment.status in ["completed", "cancelled"]:
+        raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled appointment.")
+    
+    appointment.status = "cancelled"
+    db.commit()
+    db.refresh(appointment)
+    return {"status": "success", "message": "Appointment cancelled."}
+
 # --- User Job Applications ---
 @app.get("/api/users/me/applications", response_model=list[schemas.JobApplication])
 def get_my_applications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -1557,14 +1651,13 @@ def get_dashboard_stats(filter: str = "This Week", db: Session = Depends(get_db)
 
 # --- Admin Appointments Management ---
 @app.get("/api/admin/appointments", response_model=list[schemas.ProfessionalAppointment])
-def admin_get_appointments(db: Session = Depends(get_db)):
+def admin_get_appointments(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     # Returns all appointments with user and doctor relations
-    # We don't enforce auth token here for brevity but assuming typical admin protection
     appointments = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.is_active == True).all()
     return appointments
 
 @app.put("/api/admin/appointments/{appointment_id}/status", response_model=schemas.ProfessionalAppointment)
-def admin_update_appointment_status(appointment_id: str, status: str, db: Session = Depends(get_db)):
+def admin_update_appointment_status(appointment_id: str, status: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     appointment = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.id == appointment_id).first()
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -1573,6 +1666,8 @@ def admin_update_appointment_status(appointment_id: str, status: str, db: Sessio
     
     # Push Notification logic if assigned
     if status == "sent_to_doctor":
+        from datetime import datetime
+        appointment.professional_notified_at = datetime.utcnow()
         notification = models.Notification(
             title="Appointment Confirmed",
             message=f"Your booking for {appointment.professional.name} on {appointment.appointment_date} is confirmed.",

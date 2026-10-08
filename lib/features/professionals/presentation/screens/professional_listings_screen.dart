@@ -81,15 +81,66 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
         ],
       ),
       body: professionalsState.when(
-        data: (allProfessionals) {
-          var professionals = allProfessionals;
-          if (widget.filterProfession == 'Doctor') {
-            professionals = professionals.where((p) => p.profession == 'Doctor').toList();
-          } else if (widget.filterProfession == 'Professional') {
-            professionals = professionals.where((p) => p.profession != 'Doctor').toList();
-          }
+        data: (professionals) {
+          final currentProfession = ref.watch(professionFilterProvider);
+          final currentCity = ref.watch(cityFilterProvider);
+
+          Widget filterRow = SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: currentProfession,
+                    icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBrand),
+                    style: const TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        ref.read(professionFilterProvider.notifier).updateFilter(newValue);
+                        ref.read(professionalsProvider.notifier).refresh();
+                      }
+                    },
+                    items: <String>['All', 'Doctor', 'CA', 'Developer', 'Teacher', 'Professor', 'Lawyer', 'Consultant']
+                        .map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value == 'All' ? 'All Professions' : value),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: currentCity,
+                    icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBrand),
+                    style: const TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        ref.read(cityFilterProvider.notifier).updateFilter(newValue);
+                        ref.read(professionalsProvider.notifier).refresh();
+                      }
+                    },
+                    items: <String>['All', 'Mumbai', 'Pune', 'Delhi', 'Bangalore', 'Hyderabad']
+                        .map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value == 'All' ? 'All Cities' : value),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          );
+
           if (professionals.isEmpty) {
-            return RefreshIndicator(
+            return Column(
+              children: [
+                filterRow,
+                Expanded(
+                  child: RefreshIndicator(
               onRefresh: () async {
                 await notifier.refresh();
               },
@@ -102,12 +153,17 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                 ),
               ),
             );
+            );
           }
-          return RefreshIndicator(
-            onRefresh: () async {
-              await notifier.refresh();
-            },
-            child: ListView.builder(
+          return Column(
+            children: [
+              filterRow,
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    await notifier.refresh();
+                  },
+                  child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
               controller: _scrollController,
               padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
@@ -158,17 +214,46 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(doc.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primaryText)),
+                                    Row(
+                                      children: [
+                                        Expanded(child: Text(doc.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primaryText))),
+                                        if (doc.isFeatured)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(4)),
+                                            child: const Text('FEATURED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber)),
+                                          ),
+                                      ],
+                                    ),
+                                    if (doc.qualification != null && doc.qualification!.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(doc.qualification!, style: const TextStyle(color: AppColors.primaryText, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    ],
                                     const SizedBox(height: 4),
                                     Text(doc.specialty, style: const TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.w500)),
                                     const SizedBox(height: 4),
                                     Text(doc.clinic, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+                                    if (doc.languagesSpoken.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(doc.languagesSpoken.join(', '), style: const TextStyle(color: AppColors.secondaryText, fontSize: 12, fontStyle: FontStyle.italic)),
+                                    ],
                                   ],
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          if (doc.consultationMode.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              children: doc.consultationMode.map((mode) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: AppColors.backgroundLight, borderRadius: BorderRadius.circular(4), border: Border.all(color: AppColors.border)),
+                                child: Text(mode, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.secondaryText)),
+                              )).toList(),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -211,7 +296,10 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                 );
               },
             ),
-          );
+                  ),
+                ),
+              ],
+            );
         },
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primaryBrand)),
         error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.error))),

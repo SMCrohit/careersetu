@@ -23,7 +23,8 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
   String? selectedTime;
   late DateTime selectedDate;
   late List<DateTime> availableDates;
-  final List<String> timeSlots = ['10:00 AM', '11:30 AM', '02:00 PM', '04:30 PM', '06:00 PM'];
+  List<String> bookedSlots = [];
+  bool isLoadingSlots = false;
 
   @override
   void initState() {
@@ -31,6 +32,22 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
     final now = DateTime.now();
     selectedDate = DateTime(now.year, now.month, now.day);
     availableDates = List.generate(30, (index) => DateTime(now.year, now.month, now.day).add(Duration(days: index)));
+    _fetchBookedSlots();
+  }
+
+  Future<void> _fetchBookedSlots() async {
+    setState(() => isLoadingSlots = true);
+    final String dateStr = selectedDate.isAtSameMomentAs(availableDates.first) 
+        ? 'Today' 
+        : DateFormat('MMM d, yyyy').format(selectedDate);
+    final repo = ref.read(professionalsRepositoryProvider);
+    final slots = await repo.getBookedSlots(widget.professional.id, dateStr);
+    if (mounted) {
+      setState(() {
+        bookedSlots = slots;
+        isLoadingSlots = false;
+      });
+    }
   }
 
   bool _isTimeSlotPassed(String timeStr) {
@@ -119,9 +136,7 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                       final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
                           ? 'Today' 
                           : DateFormat('MMM d, yyyy').format(selectedDate);
-                      ref.read(appointmentsProvider.notifier).bookAppointment(doc, bookingDate, selectedTime!);
-                      CustomToast.showSuccess(context, 'Appointment booked successfully!');
-                      Navigator.pop(context); // Go back to directory
+                      _showBookingConfirmation(context, ref, doc, bookingDate, selectedTime!);
                     },
             ),
           ),
@@ -226,6 +241,44 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
             ),
             
             Container(height: 8, color: AppColors.backgroundLight),
+            
+            // Availability
+            if (doc.availableDays.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Weekly Availability', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) {
+                        final isAvailable = doc.availableDays.contains(day);
+                        return Container(
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isAvailable ? AppColors.primaryBrand.withOpacity(0.1) : AppColors.backgroundLight,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: isAvailable ? AppColors.primaryBrand : AppColors.border),
+                          ),
+                          child: Text(
+                            day.substring(0, 1),
+                            style: TextStyle(
+                              color: isAvailable ? AppColors.primaryBrand : AppColors.secondaryText,
+                              fontWeight: isAvailable ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              Container(height: 8, color: AppColors.backgroundLight),
+            ],
 
             // Select Date
             Padding(
@@ -250,6 +303,7 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                               selectedDate = date;
                               selectedTime = null; // Reset time slot for new date
                             });
+                            _fetchBookedSlots();
                           },
                           child: Container(
                             width: 65,
@@ -303,14 +357,17 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
+                  if (isLoadingSlots) const Center(child: CircularProgressIndicator())
+                  else Wrap(
                     spacing: 12,
                     runSpacing: 12,
-                    children: timeSlots.map((time) {
+                    children: (doc.timeSlots.isNotEmpty ? doc.timeSlots : ['10:00 AM', '11:30 AM', '02:00 PM', '04:30 PM', '06:00 PM']).map((time) {
                       final isSelected = time == selectedTime;
                       final isPassed = _isTimeSlotPassed(time);
+                      final isBooked = bookedSlots.contains(time);
+                      final isDisabled = isPassed || isBooked;
                       return GestureDetector(
-                        onTap: isPassed ? null : () {
+                        onTap: isDisabled ? null : () {
                           setState(() {
                             selectedTime = time;
                           });
@@ -318,16 +375,16 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           decoration: BoxDecoration(
-                            color: isPassed ? AppColors.backgroundLight : isSelected ? AppColors.primaryBrand : AppColors.white,
-                            border: Border.all(color: isPassed ? AppColors.border : isSelected ? AppColors.primaryBrand : AppColors.borderDark),
+                            color: isDisabled ? AppColors.backgroundLight : isSelected ? AppColors.primaryBrand : AppColors.white,
+                            border: Border.all(color: isDisabled ? AppColors.border : isSelected ? AppColors.primaryBrand : AppColors.borderDark),
                             borderRadius: BorderRadius.circular(20), // Chips are usually rounded
                           ),
                           child: Text(
                             time,
                             style: TextStyle(
-                              color: isPassed ? AppColors.secondaryText.withOpacity(0.5) : isSelected ? AppColors.white : AppColors.primaryBrand,
+                              color: isDisabled ? AppColors.secondaryText.withOpacity(0.5) : isSelected ? AppColors.white : AppColors.primaryBrand,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                              decoration: isPassed ? TextDecoration.lineThrough : null,
+                              decoration: isPassed ? TextDecoration.lineThrough : null, // only strikethrough if passed, not if booked
                             ),
                           ),
                         ),
@@ -521,6 +578,105 @@ class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsS
               ),
             );
           }
+        );
+      },
+    );
+  }
+
+  void _showBookingConfirmation(BuildContext context, WidgetRef ref, Professional doc, String date, String time) {
+    String mode = doc.consultationMode.isNotEmpty ? doc.consultationMode.first : 'In-Person';
+    final TextEditingController notesController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Confirm Appointment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: AppColors.backgroundLight, borderRadius: BorderRadius.circular(12)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Professional: ${doc.name}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        Text('Date: $date', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        Text('Time: $time', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 4),
+                        Text('Fee: ₹${doc.consultationFee}', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Consultation Mode', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: mode,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    items: (doc.consultationMode.isNotEmpty ? doc.consultationMode : ['In-Person', 'Online', 'Phone']).map((m) {
+                      return DropdownMenuItem(value: m, child: Text(m));
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => mode = val);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Notes for Professional (Optional)', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesController,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Discussing career transition to AI...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.all(16),
+                    ),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBrand,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        ref.read(appointmentsProvider.notifier).bookAppointment(doc, date, time, mode, notesController.text);
+                        Navigator.pop(ctx);
+                        CustomToast.showSuccess(context, 'Appointment request sent successfully!');
+                        Navigator.pop(context); // Go back to directory
+                      },
+                      child: const Text('Confirm Booking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          },
         );
       },
     );
