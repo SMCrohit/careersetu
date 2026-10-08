@@ -24,7 +24,37 @@ class UserProfileUpdate(BaseModel):
     mobile_number: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[str] = None
-    email: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: Optional[str] = None
+    address: Optional[str] = None
+    dob: Optional[date] = None
+    gender: Optional[str] = None
+    marital_status: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    github_url: Optional[str] = None
+    summary: Optional[str] = None
+    years_of_experience: Optional[float] = None
+    preferred_job_location: Optional[dict] = None
+    willing_to_relocate: Optional[bool] = None
+    expected_salary: Optional[int] = None
+    current_salary: Optional[int] = None
+    notice_period_days: Optional[int] = None
+    skills: Optional[Any] = None
+    languages: Optional[Any] = None
+    education_history: Optional[Any] = None
+    work_experience: Optional[Any] = None
+    projects: Optional[Any] = None
+    certifications: Optional[Any] = None
+    achievements: Optional[Any] = None
+    hobbies: Optional[Any] = None
+    references: Optional[Any] = None
+    goal: Optional[str] = None
+    acquisition_source: Optional[str] = None
+    resume_data: Optional[Any] = None
 
 class GoalBase(BaseModel):
     name: str
@@ -62,6 +92,7 @@ class StudentProfileBase(BaseModel):
     acquisition_source_id: Optional[UUID] = None
     resume_data: Optional[Any] = None
     profile_image_url: Optional[str] = None
+    email: Optional[str] = None
     whatsapp_number: Optional[str] = None
     address: Optional[str] = None
     dob: Optional[date] = None
@@ -403,11 +434,47 @@ class BannerCreate(BannerBase):
 class Banner(BannerBase, ORMBase):
     pass
 
-class ResumeStepRequest(BaseModel):
-    user_input: str
-    current_step: str
-    current_resume_data: dict
-    chat_history: Optional[List[dict]] = []
+class ResumeChatFile(BaseModel):
+    filename: str
+    data: str  # base64 encoded PDF
+
+class ResumeChatEvent(BaseModel):
+    event: str  # init | message | choice | upload
+    text: Optional[str] = None
+    choice: Optional[str] = None
+    file: Optional[ResumeChatFile] = None
+
+class ResumeChatResponse(BaseModel):
+    messages: List[dict]
+    draft: dict
+    stage: str
+
+class ResumeBuilderSession(BaseModel):
+    messages: List[dict]
+    draft: dict
+    stage: str
+
+class ResumeDraftUpdate(BaseModel):
+    draft: dict
+
+class ResumeImproveRequest(BaseModel):
+    kind: str  # summary | bullets
+    text: str
+    context: Optional[str] = ""
+
+class ResumeAnalyzeRequest(BaseModel):
+    filename: str
+    data: str  # base64 encoded PDF
+
+class IdentityCheck(BaseModel):
+    status: str  # match | mismatch | missing
+    profile: Optional[str] = None
+    resume: Optional[str] = None
+
+class ResumeAnalyzeResponse(BaseModel):
+    is_match: bool
+    checks: dict[str, IdentityCheck]
+    extracted: dict
 
 class ResumeSessionBase(BaseModel):
     chat_history: List[dict] = []

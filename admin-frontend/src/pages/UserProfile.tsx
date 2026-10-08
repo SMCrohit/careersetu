@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Phone, Mail, MapPin, Target, Briefcase, 
   GraduationCap, Stethoscope, Download, Eye, Link, 
   Globe, CheckCircle, FileText, Calendar, Clock, Star,
-  Check, X, FileCheck, Award
+  Check, X, FileCheck, Award, Folder, Trophy, Heart
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -252,8 +252,22 @@ const UserProfile = () => {
               </div>
               <div className="flex items-start gap-3 text-sm">
                 <MapPin size={16} className="text-gray-400 mt-0.5 shrink-0" />
-                <span className="font-medium text-gray-700">{user.city || 'Not provided'}</span>
+                <span className="font-medium text-gray-700">
+                  {[user.address, user.city, user.state, user.pincode].filter(Boolean).join(', ') || 'Not provided'}
+                </span>
               </div>
+              {user.dob && (
+                <div className="flex items-start gap-3 text-sm">
+                  <User size={16} className="text-gray-400 mt-0.5 shrink-0" />
+                  <span className="font-medium text-gray-700">{user.dob} ({user.gender || 'Not specified'}, {user.marital_status || 'Not specified'})</span>
+                </div>
+              )}
+              {user.linkedin_url && (
+                <div className="flex items-start gap-3 text-sm">
+                  <Link size={16} className="text-blue-500 mt-0.5 shrink-0" />
+                  <a href={user.linkedin_url.startsWith('http') ? user.linkedin_url : `https://${user.linkedin_url}`} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline break-all">LinkedIn</a>
+                </div>
+              )}
               <div className="flex items-start gap-3 text-sm">
                 <Calendar size={16} className="text-gray-400 mt-0.5 shrink-0" />
                 <span className="font-medium text-gray-700">Joined {new Date(user.created_datetime).toLocaleDateString()}</span>
@@ -322,6 +336,30 @@ const UserProfile = () => {
                     </div>
                   )}
 
+                  {/* Languages Section */}
+                  {user.languages && user.languages.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2"><Globe size={20} className="text-orange-500"/> Languages</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {user.languages.map((lang: string, i: number) => (
+                          <span key={i} className="px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-sm font-medium border border-orange-100">{lang}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hobbies Section */}
+                  {user.hobbies && user.hobbies.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2"><Heart size={20} className="text-pink-500"/> Hobbies</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {user.hobbies.map((hobby: string, i: number) => (
+                          <span key={i} className="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-lg text-sm font-medium border border-pink-100">{hobby}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Experience Timeline */}
                   {user.work_experience && user.work_experience.length > 0 && (
                     <div>
@@ -351,6 +389,57 @@ const UserProfile = () => {
                             <h4 className="text-base font-bold text-gray-900">{edu.degree}</h4>
                             <p className="text-sm font-medium text-gray-700 mb-1">{edu.institution}</p>
                             <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12}/> {edu.year || 'Year not specified'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Projects Timeline */}
+                  {user.projects && user.projects.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-5 flex items-center gap-2"><Folder size={20} className="text-primaryBrand"/> Projects</h3>
+                      <div className="relative border-l-2 border-gray-200 ml-3 space-y-8">
+                        {user.projects.map((proj: any, i: number) => (
+                          <div key={i} className="pl-6 relative">
+                            <div className="absolute w-4 h-4 bg-indigo-500 rounded-full -left-[9px] top-1 border-4 border-white shadow-sm"></div>
+                            <h4 className="text-base font-bold text-gray-900">{proj.title}</h4>
+                            <p className="text-sm font-medium text-gray-700 mb-1">{proj.role}</p>
+                            <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12}/> {proj.duration || 'Duration not specified'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Certifications Timeline */}
+                  {user.certifications && user.certifications.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-5 flex items-center gap-2"><Award size={20} className="text-primaryBrand"/> Certifications</h3>
+                      <div className="relative border-l-2 border-gray-200 ml-3 space-y-8">
+                        {user.certifications.map((cert: any, i: number) => (
+                          <div key={i} className="pl-6 relative">
+                            <div className="absolute w-4 h-4 bg-teal-500 rounded-full -left-[9px] top-1 border-4 border-white shadow-sm"></div>
+                            <h4 className="text-base font-bold text-gray-900">{cert.title}</h4>
+                            <p className="text-sm font-medium text-gray-700 mb-1">{cert.organization}</p>
+                            <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12}/> {cert.year || 'Year not specified'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Achievements Timeline */}
+                  {user.achievements && user.achievements.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-5 flex items-center gap-2"><Trophy size={20} className="text-primaryBrand"/> Achievements</h3>
+                      <div className="relative border-l-2 border-gray-200 ml-3 space-y-8">
+                        {user.achievements.map((ach: any, i: number) => (
+                          <div key={i} className="pl-6 relative">
+                            <div className="absolute w-4 h-4 bg-yellow-500 rounded-full -left-[9px] top-1 border-4 border-white shadow-sm"></div>
+                            <h4 className="text-base font-bold text-gray-900">{ach.title}</h4>
+                            <p className="text-sm font-medium text-gray-700 mb-1">{ach.event}</p>
+                            <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12}/> {ach.year || 'Year not specified'}</p>
                           </div>
                         ))}
                       </div>

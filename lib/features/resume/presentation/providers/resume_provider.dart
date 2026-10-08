@@ -1,229 +1,189 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../auth/domain/user_model.dart';
+import '../../../../core/api/api_client.dart';
 import '../../data/ai_service.dart';
-
-enum ResumeStep { init, summary, experience, education, skills, complete }
-
-class ChatMessage {
-  final String text;
-  final bool isUser;
-
-  ChatMessage({required this.text, required this.isUser});
-}
+import '../../domain/chat_message.dart';
+import '../../domain/resume_draft.dart';
 
 class ChatResumeState {
   final List<ChatMessage> messages;
+  final ResumeDraft draft;
+  final String stage;
+  final bool isLoading;
   final bool isTyping;
-  final Map<String, dynamic> resumeData;
-  final ResumeStep currentStep;
+
+  /// 0..1 while a resume file is being sent, otherwise null.
+  final double? uploadProgress;
 
   ChatResumeState({
-    required this.messages,
-    required this.isTyping,
-    required this.resumeData,
-    required this.currentStep,
-  });
+    this.messages = const [],
+    ResumeDraft? draft,
+    this.stage = 'new',
+    this.isLoading = false,
+    this.isTyping = false,
+    this.uploadProgress,
+  }) : draft = draft ?? ResumeDraft();
+
+  bool get isBusy => isTyping || uploadProgress != null;
 
   ChatResumeState copyWith({
     List<ChatMessage>? messages,
+    ResumeDraft? draft,
+    String? stage,
+    bool? isLoading,
     bool? isTyping,
-    Map<String, dynamic>? resumeData,
-    ResumeStep? currentStep,
+    double? uploadProgress,
+    bool clearUpload = false,
   }) {
     return ChatResumeState(
       messages: messages ?? this.messages,
+      draft: draft ?? this.draft,
+      stage: stage ?? this.stage,
+      isLoading: isLoading ?? this.isLoading,
       isTyping: isTyping ?? this.isTyping,
-      resumeData: resumeData ?? this.resumeData,
-      currentStep: currentStep ?? this.currentStep,
+      uploadProgress: clearUpload ? null : (uploadProgress ?? this.uploadProgress),
     );
   }
 }
 
 class ChatResumeNotifier extends Notifier<ChatResumeState> {
-  final AIService _aiService = AIService();
+  bool _initialized = false;
+
+  /// The last request sent, so a failed one can be retried from its chip.
+  Future<void> Function()? _lastRequest;
+
+  AIService get _service => ref.read(aiServiceProvider);
 
   @override
-  ChatResumeState build() {
-    return ChatResumeState(
-      messages: [],
-      isTyping: false,
-      resumeData: {},
-      currentStep: ResumeStep.init,
-    );
-  }
+  ChatResumeState build() => ChatResumeState();
 
-  bool _isResumeStrong(Map<String, dynamic> data) {
-    bool hasContact = data.containsKey('full_name') && data.containsKey('email');
-    bool hasSummary = data.containsKey('summary') && data['summary'].toString().isNotEmpty;
-    bool hasExp = data.containsKey('experience') && (data['experience'] as List).isNotEmpty;
-    bool hasEdu = data.containsKey('education') && (data['education'] as List).isNotEmpty;
-    bool hasSkills = data.containsKey('skills') && (data['skills'] as List).isNotEmpty;
-    
-    return hasContact && hasSummary && hasExp && hasEdu && hasSkills;
-  }
-
-  void initializeChat(User? user) async {
-    if (user == null || state.messages.isNotEmpty) return;
-
+  /// Restores the saved conversation, or starts a new one.
+  Future<void> init({bool force = false}) async {
+    if (_initialized && !force) return;
+    _initialized = true;
+    state = state.copyWith(isLoading: true);
     try {
-      final sessionData = await _aiService.getResumeSession();
-      final chatHistoryList = sessionData['chat_history'] as List? ?? [];
-      
-      if (chatHistoryList.isNotEmpty) {
-        final List<ChatMessage> loadedMessages = chatHistoryList.map((msg) {
-          return ChatMessage(
-            text: msg['content'] ?? '',
-            isUser: msg['role'] == 'user',
-          );
-        }).toList();
+      final session = await _service.getSession();
+      state = state.copyWith(messages: session.messages, draft: session.draft, stage: session.stage, isLoading: false);
+      if (session.messages.isEmpty) await _request(() => _service.chat('init'));
+    } catch (e) {
+      _initialized = false;
+      state = state.copyWith(isLoading: false);
+      _addError(e, () => init(force: true));
+    }
+  }
 
-        final extractedData = sessionData['extracted_data'] as Map<String, dynamic>? ?? {};
-        final currentStepStr = sessionData['current_step'] ?? 'summary';
-        
-        ResumeStep currentStep = ResumeStep.summary;
-        if (currentStepStr == 'experience') currentStep = ResumeStep.experience;
-        else if (currentStepStr == 'education') currentStep = ResumeStep.education;
-        else if (currentStepStr == 'skills') currentStep = ResumeStep.skills;
-        else if (currentStepStr == 'complete') currentStep = ResumeStep.complete;
+  Future<void> send(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || state.isBusy) return;
+    _addMessage(ChatMessage(role: 'user', text: trimmed));
+    await _request(() => _service.chat('message', text: trimmed));
+  }
 
+  Future<void> choose(ChatOption option) async {
+    if (state.isBusy) return;
+    switch (option.kind) {
+      case 'message':
+        await send(option.label);
+      case 'upload':
+        await uploadResume();
+      case 'retry':
+        _removeLastErrorMessage();
+        await _lastRequest?.call();
+      case 'choice':
+        _addMessage(ChatMessage(role: 'user', text: option.label));
+        await _request(() => _service.chat('choice', choice: option.id, text: option.label));
+    }
+  }
+
+  /// Picks a PDF and sends it for the AI to read. Returns an error message to show, if any.
+  Future<String?> uploadResume() async {
+    if (state.isBusy) return null;
+    final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['pdf']);
+    if (result.isEmpty) return null;
+
+    final file = result.first;
+    final size = file.path != null ? File(file.path!).lengthSync() : 0;
+    if (size > 5 * 1024 * 1024) return 'Resume must be less than 5MB';
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return "Couldn't read that file";
+    if (bytes.length > 5 * 1024 * 1024) return 'Resume must be less than 5MB';
+
+    final payload = {'filename': file.name, 'data': base64Encode(bytes)};
+    _addMessage(ChatMessage(role: 'user', type: 'file', text: file.name));
+    await _request(
+      () => _service.chat('upload', file: payload, onSendProgress: (count, total) {
+        if (total > 0) state = state.copyWith(uploadProgress: count / total);
+      }),
+      uploading: true,
+    );
+    return null;
+  }
+
+  /// Saves edits made in the resume editor.
+  Future<void> saveDraft(ResumeDraft draft) async {
+    final saved = await _service.saveDraft(draft);
+    state = state.copyWith(draft: saved);
+  }
+
+  /// Clears the conversation and starts over.
+  Future<void> reset() async {
+    if (state.isBusy) return;
+    state = state.copyWith(isLoading: true);
+    try {
+      await _service.reset();
+      state = ChatResumeState();
+      _initialized = false;
+      await init();
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      _addError(e, reset);
+    }
+  }
+
+  Future<void> _request(Future<ResumeChatResult> Function() call, {bool uploading = false}) async {
+    Future<void> run() async {
+      state = state.copyWith(isTyping: true, uploadProgress: uploading ? 0 : null);
+      try {
+        final result = await call();
         state = state.copyWith(
-          messages: loadedMessages,
-          resumeData: extractedData,
-          currentStep: currentStep,
+          messages: [...state.messages, ...result.messages],
+          draft: result.draft,
+          stage: result.stage,
+          isTyping: false,
+          clearUpload: true,
         );
-        return;
+      } catch (e) {
+        state = state.copyWith(isTyping: false, clearUpload: true);
+        _addError(e, run);
       }
-    } catch (e) {
-      print('Error fetching session: $e');
     }
 
-    bool hasResume = user.resumeData != null && user.resumeData!['data'] != null;
-
-    if (hasResume && _isResumeStrong(user.resumeData!)) {
-      _addMessage('Hi ${user.fullName}! Your profile resume is strong enough, please look in your resume profile.', false);
-      state = state.copyWith(currentStep: ResumeStep.complete, resumeData: user.resumeData!);
-    } else {
-      _addMessage("Hi ${user.fullName}! Let's build your resume. I already have your email and number from your profile.", false);
-      if (hasResume) {
-        _addMessage('To start, please provide a short professional summary or your career goals.', false);
-      } else {
-        _addMessage("If you have a resume please upload to know more about you. If not we can start it by starting .. like some thing", false);
-        _addMessage('UPLOAD_RESUME_BUTTON', false);
-      }
-      
-      final initialData = Map<String, dynamic>.from(user.resumeData ?? {});
-      initialData['full_name'] = user.fullName;
-      initialData['email'] = user.email;
-      initialData['mobile_number'] = user.mobileNumber;
-
-      state = state.copyWith(
-        currentStep: ResumeStep.summary,
-        resumeData: initialData,
-      );
-    }
-    
-    _saveSession();
+    await run();
   }
 
-  void _saveSession() {
-    final chatHistory = state.messages.map((msg) => {
-      'role': msg.isUser ? 'user' : 'assistant',
-      'content': msg.text,
-    }).toList();
-    
-    _aiService.updateResumeSession(
-      chatHistory: chatHistory,
-      extractedData: state.resumeData,
-      currentStep: _getStepKey(state.currentStep),
-      status: state.currentStep == ResumeStep.complete ? 'complete' : 'in_progress',
-    );
+  void _addMessage(ChatMessage message) {
+    state = state.copyWith(messages: [...state.messages, message]);
   }
 
-  void _addMessage(String text, bool isUser) {
-    state = state.copyWith(
-      messages: [...state.messages, ChatMessage(text: text, isUser: isUser)],
-    );
+  void _addError(Object error, Future<void> Function() retry) {
+    _lastRequest = retry;
+    final reason = error is ApiException ? error.message : 'Something went wrong.';
+    _addMessage(ChatMessage(
+      role: 'assistant',
+      type: 'error',
+      text: "Sorry, I couldn't get that through. $reason",
+      options: const [ChatOption(id: 'retry', label: 'Try again', kind: 'retry')],
+    ));
   }
 
-
-
-  String _getStepKey(ResumeStep step) {
-    switch (step) {
-      case ResumeStep.summary: return 'summary';
-      case ResumeStep.experience: return 'experience';
-      case ResumeStep.education: return 'education';
-      case ResumeStep.skills: return 'skills';
-      default: return 'unknown';
-    }
-  }
-
-  void sendMessage(String text) async {
-    if (state.currentStep == ResumeStep.complete) {
-      _addMessage(text, true);
-      _addMessage('Your resume is already complete! Click "Generate PDF" to view it.', false);
-      return;
-    }
-
-    _addMessage(text, true);
-    state = state.copyWith(isTyping: true);
-
-    try {
-      final currentStepKey = _getStepKey(state.currentStep);
-      
-      final chatHistory = state.messages.map((msg) => {
-        'role': msg.isUser ? 'user' : 'assistant',
-        'content': msg.text,
-      }).toList();
-
-      final response = await _aiService.processResumeStep(text, currentStepKey, state.resumeData, chatHistory);
-
-      final String aiReply = response['reply'] ?? 'Got it!';
-      final bool isSufficient = response['is_sufficient'] ?? true;
-      final String nextStepStr = response['next_step'] ?? currentStepKey;
-      final dynamic extractedData = response['extracted_data'];
-
-      final updatedResumeData = Map<String, dynamic>.from(state.resumeData);
-      
-      if (isSufficient && extractedData != null) {
-        if (updatedResumeData.containsKey(currentStepKey) && updatedResumeData[currentStepKey] is List) {
-          if (extractedData is List) {
-             (updatedResumeData[currentStepKey] as List).addAll(extractedData);
-          } else {
-             (updatedResumeData[currentStepKey] as List).add(extractedData);
-          }
-        } else {
-          updatedResumeData[currentStepKey] = extractedData;
-        }
-      }
-
-      // Convert nextStepStr back to enum
-      ResumeStep nextStep = state.currentStep;
-      if (nextStepStr == 'experience') nextStep = ResumeStep.experience;
-      else if (nextStepStr == 'education') nextStep = ResumeStep.education;
-      else if (nextStepStr == 'skills') nextStep = ResumeStep.skills;
-      else if (nextStepStr == 'complete') nextStep = ResumeStep.complete;
-      else if (nextStepStr == 'summary') nextStep = ResumeStep.summary;
-
-      state = state.copyWith(
-        resumeData: updatedResumeData,
-        currentStep: nextStep,
-        isTyping: false,
-      );
-
-      _addMessage(aiReply, false);
-      if (nextStep == ResumeStep.complete) {
-        _addMessage('GENERATE_RESUME_BUTTON', false);
-      }
-      
-      _saveSession();
-      
-    } catch (e) {
-      state = state.copyWith(isTyping: false);
-      _addMessage("Sorry, I encountered an error: $e", false);
+  void _removeLastErrorMessage() {
+    if (state.messages.isNotEmpty && state.messages.last.type == 'error') {
+      state = state.copyWith(messages: state.messages.sublist(0, state.messages.length - 1));
     }
   }
 }
 
-final chatResumeProvider = NotifierProvider<ChatResumeNotifier, ChatResumeState>(() {
-  return ChatResumeNotifier();
-});
+final chatResumeProvider = NotifierProvider<ChatResumeNotifier, ChatResumeState>(ChatResumeNotifier.new);

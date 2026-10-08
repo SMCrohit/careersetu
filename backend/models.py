@@ -37,6 +37,7 @@ class StudentProfile(BaseModel):
     profile_image_url = Column(Text, nullable=True)
     
     # Personal Info
+    email = Column(String, nullable=True)
     whatsapp_number = Column(String, nullable=True)
     address = Column(Text, nullable=True)
     dob = Column(Date, nullable=True)

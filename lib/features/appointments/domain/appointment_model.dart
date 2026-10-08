@@ -31,6 +31,7 @@ class Appointment {
               specialty: '',
               clinic: '',
               experienceYears: 0,
+              experienceString: '',
               rating: 0,
               defaultRating: 0,
               reviews: 0,

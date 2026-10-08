@@ -12,6 +12,7 @@ from sqlalchemy import func, or_
 from datetime import timedelta, datetime, date
 import models, schemas, auth
 from database import engine, get_db
+from utils import calculate_profile_score
 
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
@@ -1296,24 +1297,66 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
 
 @app.put("/api/users/profile", response_model=schemas.User)
 def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    if user_update.profile_image_url is not None:
-        current_user.profile_image_url = user_update.profile_image_url
     if user_update.mobile_number is not None:
         # Check if mobile number is already in use
         existing_user = db.query(models.User).filter(models.User.mobile_number == user_update.mobile_number).first()
         if existing_user and existing_user.id != current_user.id:
             raise HTTPException(status_code=400, detail="Mobile number already in use by another account.")
         current_user.mobile_number = user_update.mobile_number
-    if user_update.city is not None:
-        current_user.city = user_update.city
-    if user_update.goal is not None:
-        current_user.goal = user_update.goal
     if user_update.full_name is not None:
         current_user.full_name = user_update.full_name
-    if user_update.email is not None:
-        current_user.email = user_update.email
-    if user_update.resume_data is not None:
-        current_user.resume_data = user_update.resume_data
+
+    # Handle StudentProfile fields
+    profile_fields = [
+        'city', 'state', 'pincode', 'country', 'address', 'dob', 'gender', 'marital_status',
+        'portfolio_url', 'linkedin_url', 'github_url', 'summary', 'years_of_experience',
+        'preferred_job_location', 'willing_to_relocate', 'expected_salary', 'current_salary',
+        'notice_period_days', 'skills', 'languages', 'education_history', 'work_experience',
+        'projects', 'certifications', 'achievements', 'hobbies', 'references',
+        'resume_data', 'whatsapp_number', 'email', 'profile_image_url'
+    ]
+    
+    if any(getattr(user_update, field) is not None for field in profile_fields) or user_update.goal is not None or user_update.acquisition_source is not None:
+        if not current_user.student_profile:
+            new_profile = models.StudentProfile(user_id=current_user.id)
+            db.add(new_profile)
+            db.flush()
+            current_user.student_profile = new_profile
+            
+        for field in profile_fields:
+            if getattr(user_update, field) is not None:
+                setattr(current_user.student_profile, field, getattr(user_update, field))
+                
+        # Sync skills with SkillDictionary
+        if user_update.skills is not None:
+            for skill_name in user_update.skills:
+                # Case-insensitive check
+                existing_skill = db.query(models.SkillDictionary).filter(models.SkillDictionary.name.ilike(skill_name)).first()
+                if not existing_skill:
+                    new_skill = models.SkillDictionary(name=skill_name, category="Other")
+                    db.add(new_skill)
+            db.flush()
+                
+        if user_update.goal is not None:
+            # Find or create goal
+            goal = db.query(models.Goal).filter(models.Goal.name.ilike(user_update.goal)).first()
+            if not goal:
+                goal = models.Goal(name=user_update.goal)
+                db.add(goal)
+                db.flush()
+            current_user.student_profile.goal_id = goal.id
+            
+        if user_update.acquisition_source is not None:
+            # Find or create source
+            src = db.query(models.AcquisitionSource).filter(models.AcquisitionSource.name.ilike(user_update.acquisition_source)).first()
+            if not src:
+                src = models.AcquisitionSource(name=user_update.acquisition_source)
+                db.add(src)
+                db.flush()
+            current_user.student_profile.acquisition_source_id = src.id
+
+    if current_user.student_profile:
+        current_user.student_profile.profile_completion_score = calculate_profile_score(current_user, current_user.student_profile)
     
     db.commit()
     db.refresh(current_user)
@@ -1788,137 +1831,127 @@ def admin_get_all_test_attempts(
 import httpx
 import json
 
-@app.post("/api/resume/process-step")
-async def process_resume_step(req: schemas.ResumeStepRequest):
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured on server.")
+@app.post("/api/resume/analyze", response_model=schemas.ResumeAnalyzeResponse)
+async def analyze_resume(
+    req: schemas.ResumeAnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Reads an uploaded resume with AI and checks it belongs to the current user. Saves nothing."""
+    import base64
+    import resume_ai
 
-    system_prompt = f"""
-You are an expert professional resume writer interviewing a user.
-The current section you are gathering information for is: {req.current_step}.
-The user's current resume data is: {json.dumps(req.current_resume_data)}.
+    try:
+        pdf_bytes = base64.b64decode(req.data, validate=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid file data.")
+    if len(pdf_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Resume must be 5MB or smaller.")
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Please upload a PDF file.")
 
-Please carefully review the conversation history.
-Evaluate the user's latest input: "{req.user_input}"
+    try:
+        text = resume_ai.extract_pdf_text(pdf_bytes)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Couldn't open this PDF. Please upload a different file.")
+    if len(text) < 50:
+        raise HTTPException(status_code=422, detail="Couldn't read text from this PDF. Please upload a text-based (not scanned) resume.")
 
-Strict Rules:
-1. "Upload Resume" Context: If your last message asked the user to upload a resume and they respond with a greeting (like 'hi') or say they don't have one, politely acknowledge it (e.g., 'Hello! Since you haven't uploaded a resume, let's build one from scratch. Could you please provide a brief summary...') and set next_step as "{req.current_step}".
-2. Missing Info / Skipping: If the user explicitly states they don't know, don't have, or want to skip the current section, DO NOT force them. Set `is_sufficient` to true (with empty `extracted_data`), politely acknowledge it, and move to the `next_step` (e.g., from summary to experience).
-3. Off-Topic: If the input is completely unrelated to resume building, do not extract data. Politely steer them back and restate the question for the {req.current_step}.
-4. Preventing Loops: Never ask for information that is already present in `current_resume_data`. If the data is sufficient, always transition to the next logical step (summary -> experience -> education -> skills -> complete).
-5. Incomplete Info: If the input is relevant but too brief (e.g., a 1-word answer for work history), ask a polite follow-up question for the {req.current_step}. DO NOT extract data, and keep next_step as "{req.current_step}".
+    try:
+        extracted = await resume_ai.parse_resume_with_ai(text)
+    except resume_ai.ResumeAIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-If the input provides good information for the {req.current_step}, extract and professionalize it into "extracted_data", decide the "next_step", and formulate a "reply" asking for the next information.
+    profile = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == current_user.id).first()
+    result = resume_ai.compare_identity(current_user, profile, extracted)
+    return {**result, "extracted": extracted}
 
-For "extracted_data", YOU MUST strictly follow this JSON schema depending on the current section:
-- If section is "summary": Return a single string.
-- If section is "experience": Return a LIST OF OBJECTS, where each object has: "title" (string), "company" (string), "date" (string), "bullets" (list of strings).
-- If section is "education": Return a LIST OF OBJECTS, where each object has: "degree" (string), "date" (string), "school" (string).
-- If section is "skills": Return a single string with skills separated by commas or newlines.
+# --- AI Resume Builder (chat) ---
 
-Return your response ONLY as a JSON object with:
-- "is_sufficient": boolean (true if you got enough info or the user skipped, false if you need to ask more about the current section)
-- "reply": Your conversational response to the user.
-- "extracted_data": (Optional) The professionalized data matching the schema above.
-- "next_step": The string key of the next section to move to. If is_sufficient is false, next_step MUST be "{req.current_step}".
-
-Do not wrap the JSON in Markdown code blocks like ```json, just return the raw JSON object.
-"""
-
-    messages = [{"role": "system", "content": system_prompt}]
-    if req.chat_history:
-        for msg in req.chat_history[-5:]: # Only send the last 5 messages to avoid token bloat
-            role = msg.get("role", "user")
-            if role not in ["user", "assistant", "system"]:
-                role = "user"
-            messages.append({"role": role, "content": msg.get("content", "")})
-    
-    messages.append({"role": "user", "content": req.user_input})
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}"
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "response_format": {"type": "json_object"},
-                    "messages": messages,
-                    "temperature": 0.7
-                },
-                timeout=30.0
-            )
-            response.raise_for_status()
-            data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
-
-            if content.startswith("```"):
-                first_newline = content.find("\n")
-                if first_newline != -1:
-                    content = content[first_newline + 1:]
-                if content.endswith("```"):
-                    content = content[:-3]
-                content = content.strip()
-
-            return json.loads(content)
-
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=f"OpenAI error: {e.response.text}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error communicating with AI: {str(e)}")
-
-# --- Resume Session Endpoints ---
-@app.get("/api/resume/session", response_model=schemas.ResumeSessionOut)
-def get_resume_session(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    user_id = current_user.get("user_id")
-    session = db.query(models.ResumeSession).filter(models.ResumeSession.user_id == user_id, models.ResumeSession.is_active == True).first()
-    
-    if not session:
-        # Create a new session and initialize with user.resume_data if it exists
-        user = db.query(models.User).filter(models.User.id == user_id).first()
-        initial_extracted = user.resume_data if user and user.resume_data else {}
-        uploaded_info = None
-        if initial_extracted and "data" in initial_extracted:
-            uploaded_info = initial_extracted
-        
-        session = models.ResumeSession(
-            user_id=user_id,
-            chat_history=[],
-            extracted_data=initial_extracted,
-            uploaded_resume_info=uploaded_info
-        )
+def _active_resume_session(db: Session, user: models.User, create: bool = True):
+    session = db.query(models.ResumeSession).filter(
+        models.ResumeSession.user_id == user.id, models.ResumeSession.is_active == True
+    ).order_by(models.ResumeSession.created_datetime.desc()).first()
+    if not session and create:
+        session = models.ResumeSession(user_id=user.id, chat_history=[], extracted_data={},
+                                       uploaded_resume_info={}, current_step="new")
         db.add(session)
-        db.commit()
-        db.refresh(session)
-        
+        db.flush()
     return session
 
-@app.post("/api/resume/session/update", response_model=schemas.ResumeSessionOut)
-def update_resume_session(req: schemas.ResumeSessionUpdate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    user_id = current_user.get("user_id")
-    session = db.query(models.ResumeSession).filter(models.ResumeSession.user_id == user_id, models.ResumeSession.is_active == True).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    if req.chat_history is not None:
-        session.chat_history = req.chat_history
-    if req.extracted_data is not None:
-        session.extracted_data = req.extracted_data
-    if req.uploaded_resume_info is not None:
-        session.uploaded_resume_info = req.uploaded_resume_info
-    if req.status is not None:
-        session.status = req.status
-    if req.current_step is not None:
-        session.current_step = req.current_step
-        
+def _builder_session_out(session) -> dict:
+    return {
+        "messages": session.chat_history or [] if session else [],
+        "draft": (session.extracted_data or {}) if session else {},
+        "stage": (session.current_step or "new") if session else "new",
+    }
+
+@app.get("/api/resume/session", response_model=schemas.ResumeBuilderSession)
+def get_resume_session(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return _builder_session_out(_active_resume_session(db, current_user, create=False))
+
+@app.post("/api/resume/session/reset", response_model=schemas.ResumeBuilderSession)
+def reset_resume_session(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    session = _active_resume_session(db, current_user, create=False)
+    if session:
+        session.is_active = False
+        session.deleted_datetime = datetime.utcnow()
+        db.commit()
+    return _builder_session_out(None)
+
+@app.post("/api/resume/chat", response_model=schemas.ResumeChatResponse)
+async def resume_chat(req: schemas.ResumeChatEvent, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    import copy
+    import resume_builder
+
+    session = _active_resume_session(db, current_user)
+    profile = current_user.student_profile
+    if req.event == "init" and session.chat_history:
+        return _builder_session_out(session) | {"messages": []}
+
+    turn = await resume_builder.handle_event(
+        session.current_step or "new", session.extracted_data or {},
+        copy.deepcopy(session.uploaded_resume_info or {}), current_user, profile, req.model_dump()
+    )
+
+    if turn.sync_profile:
+        update_user_profile(schemas.UserProfileUpdate(**resume_builder.draft_to_profile_update(turn.draft)),
+                            db, current_user)
+
+    user_turn = []
+    if req.event == "message" and req.text:
+        user_turn = [{"role": "user", "type": "text", "text": req.text}]
+    elif req.event == "upload" and req.file:
+        user_turn = [{"role": "user", "type": "file", "text": req.file.filename}]
+    elif req.event == "choice" and req.text:
+        user_turn = [{"role": "user", "type": "text", "text": req.text}]
+
+    session.chat_history = (session.chat_history or []) + user_turn + turn.messages
+    session.extracted_data = turn.draft
+    session.uploaded_resume_info = turn.info
+    session.current_step = turn.stage
+    session.status = "completed" if turn.stage == "ready" else "in_progress"
     db.commit()
-    db.refresh(session)
-    return session
+    return {"messages": turn.messages, "draft": turn.draft, "stage": turn.stage}
+
+@app.put("/api/resume/draft", response_model=schemas.ResumeBuilderSession)
+def save_resume_draft(req: schemas.ResumeDraftUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    import resume_builder
+    session = _active_resume_session(db, current_user)
+    session.extracted_data = resume_builder.apply_identity(req.draft, current_user, current_user.student_profile)
+    db.commit()
+    return _builder_session_out(session)
+
+@app.post("/api/resume/improve")
+async def improve_resume_text(req: schemas.ResumeImproveRequest, current_user: models.User = Depends(auth.get_current_user)):
+    import resume_builder
+    from resume_ai import ResumeAIError
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Nothing to improve yet.")
+    try:
+        return await resume_builder.improve_text(req.kind, req.text, req.context or "")
+    except ResumeAIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 # --- Settings Endpoints ---
 

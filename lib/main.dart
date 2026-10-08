@@ -7,11 +7,12 @@ import 'core/constants/app_colors.dart';
 import 'features/auth/presentation/screens/registration_screen.dart';
 import 'features/auth/presentation/screens/otp_screen.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
-import 'features/auth/presentation/screens/complete_profile_screen.dart';
 import 'features/home/presentation/screens/main_navigation.dart';
 import 'features/profile/presentation/screens/profile_screen.dart';
 import 'features/notifications/presentation/screens/notifications_screen.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
+import 'features/auth/presentation/screens/splash_screen.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,23 +45,25 @@ class CareerSetuApp extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: AppColors.primaryText),
-          displayMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.primaryText),
-          displaySmall: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText),
-          bodyLarge: TextStyle(fontSize: 16, color: AppColors.primaryText),
-          bodyMedium: TextStyle(fontSize: 14, color: AppColors.secondaryText),
-          bodySmall: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+        textTheme: GoogleFonts.robotoTextTheme(
+          const TextTheme(
+            displayLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: AppColors.primaryText),
+            displayMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.primaryText),
+            displaySmall: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText),
+            bodyLarge: TextStyle(fontSize: 16, color: AppColors.primaryText),
+            bodyMedium: TextStyle(fontSize: 14, color: AppColors.secondaryText),
+            bodySmall: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+          ),
         ),
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primaryBrand),
         useMaterial3: false,
       ),
-      home: const AuthWrapper(),
+      home: const SplashScreen(),
       routes: {
+        '/auth_wrapper': (context) => const AuthWrapper(),
         '/login': (context) => const LoginScreen(),
         '/registration': (context) => const RegistrationScreen(),
         '/otp': (context) => const OtpScreen(),
-        '/complete_profile': (context) => const CompleteProfileScreen(),
         '/main': (context) => const MainNavigation(),
         '/profile': (context) => const ProfileScreen(),
         '/notifications': (context) => const NotificationsScreen(),
@@ -92,11 +95,14 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
     }
 
     if (authState.currentUser != null) {
-      if (authState.currentUser!.fullName.isEmpty || authState.currentUser!.email.isEmpty) {
+      final user = authState.currentUser!;
+      bool needsRegistration = false;
+      if (user.fullName.isEmpty || user.fullName == 'null') needsRegistration = true;
+      if (user.email.isEmpty || user.email == 'null') needsRegistration = true;
+      if (user.whatsappNumber.isEmpty || user.whatsappNumber == 'null') needsRegistration = true;
+
+      if (needsRegistration) {
         return const RegistrationScreen();
-      }
-      if (authState.currentUser!.city.isEmpty || authState.currentUser!.goal.isEmpty) {
-        return const CompleteProfileScreen();
       }
       return const MainNavigation();
     }

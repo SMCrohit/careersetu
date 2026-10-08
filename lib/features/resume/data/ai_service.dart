@@ -1,67 +1,83 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter/foundation.dart';
-import '../../../../core/api/api_client.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api/api_client.dart';
+import '../../jobs/data/jobs_repository.dart';
+import '../domain/chat_message.dart';
+import '../domain/resume_draft.dart';
 
+class ResumeChatResult {
+  final List<ChatMessage> messages;
+  final ResumeDraft draft;
+  final String stage;
+
+  ResumeChatResult({required this.messages, required this.draft, required this.stage});
+
+  factory ResumeChatResult.fromJson(Map<String, dynamic> json) => ResumeChatResult(
+        messages: (json['messages'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
+            .toList(),
+        draft: ResumeDraft.fromJson(json['draft'] is Map ? Map<String, dynamic>.from(json['draft']) : null),
+        stage: json['stage']?.toString() ?? 'new',
+      );
+}
+
+/// Talks to the backend AI resume builder. The OpenAI key lives only on the server.
 class AIService {
-  final ApiClient _apiClient = ApiClient();
+  final ApiClient _apiClient;
 
-  Future<Map<String, dynamic>> getResumeSession() async {
+  AIService(this._apiClient);
+
+  static final _aiOptions = Options(receiveTimeout: const Duration(seconds: 90));
+
+  Future<ResumeChatResult> getSession() async {
     final response = await _apiClient.get('/resume/session');
-    if (response.statusCode == 200) {
-      return response.data;
-    } else {
-      throw Exception('Failed to get resume session: ${response.data}');
-    }
+    return ResumeChatResult.fromJson(Map<String, dynamic>.from(response.data));
   }
 
-  Future<void> updateResumeSession({
-    List<Map<String, String>>? chatHistory,
-    Map<String, dynamic>? extractedData,
-    Map<String, dynamic>? uploadedResumeInfo,
-    String? status,
-    String? currentStep,
+  Future<ResumeChatResult> reset() async {
+    final response = await _apiClient.post('/resume/session/reset');
+    return ResumeChatResult.fromJson(Map<String, dynamic>.from(response.data));
+  }
+
+  /// [event] is 'init', 'message', 'choice' or 'upload'.
+  Future<ResumeChatResult> chat(
+    String event, {
+    String? text,
+    String? choice,
+    Map<String, String>? file,
+    ProgressCallback? onSendProgress,
   }) async {
-    final Map<String, dynamic> body = {};
-    if (chatHistory != null) body['chat_history'] = chatHistory;
-    if (extractedData != null) body['extracted_data'] = extractedData;
-    if (uploadedResumeInfo != null) body['uploaded_resume_info'] = uploadedResumeInfo;
-    if (status != null) body['status'] = status;
-    if (currentStep != null) body['current_step'] = currentStep;
-
-    final response = await _apiClient.post('/resume/session/update', data: body);
-    if (response.statusCode != 200) {
-      throw Exception('Failed to update resume session: ${response.data}');
-    }
+    final response = await _apiClient.post(
+      '/resume/chat',
+      data: {
+        'event': event,
+        if (text != null) 'text': text,
+        if (choice != null) 'choice': choice,
+        if (file != null) 'file': file,
+      },
+      options: _aiOptions,
+      onSendProgress: onSendProgress,
+    );
+    return ResumeChatResult.fromJson(Map<String, dynamic>.from(response.data));
   }
 
-  Future<Map<String, dynamic>> processResumeStep(String userInput, String currentStep, Map<String, dynamic> currentResumeData, List<Map<String, String>> chatHistory) async {
-    final baseUrl = ApiClient.baseUrl;
-    
-    if (baseUrl.isEmpty) {
-      throw Exception('Base URL is empty.');
-    }
+  Future<ResumeDraft> saveDraft(ResumeDraft draft) async {
+    final response = await _apiClient.put('/resume/draft', data: {'draft': draft.toJson()});
+    return ResumeDraft.fromJson(Map<String, dynamic>.from(response.data['draft'] ?? {}));
+  }
 
-    final endpoint = '$baseUrl/resume/process-step';
-
-    final response = await http.post(
-      Uri.parse(endpoint),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'user_input': userInput,
-        'current_step': currentStep,
-        'current_resume_data': currentResumeData,
-        'chat_history': chatHistory,
-      }),
+  /// Rewrites a summary (returns one string) or bullets (returns a list) with AI.
+  Future<List<String>> improve(String kind, String text, {String context = ''}) async {
+    final response = await _apiClient.post(
+      '/resume/improve',
+      data: {'kind': kind, 'text': text, 'context': context},
+      options: _aiOptions,
     );
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Failed to communicate with backend: ${response.body}');
-    }
+    final data = Map<String, dynamic>.from(response.data);
+    if (kind == 'bullets') return List<String>.from(data['bullets'] ?? []);
+    return [data['text']?.toString() ?? ''];
   }
 }
+
+final aiServiceProvider = Provider((ref) => AIService(ref.watch(apiClientProvider)));

@@ -99,10 +99,25 @@ class ApiClient {
     }
   }
 
-  Future<Response> post(String path, {dynamic data, Map<String, dynamic>? queryParameters}) async {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+    CancelToken? cancelToken,
+    ProgressCallback? onSendProgress,
+  }) async {
     try {
-      return await _dio.post(path, data: data, queryParameters: queryParameters);
+      return await _dio.post(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+        cancelToken: cancelToken,
+        onSendProgress: onSendProgress,
+      );
     } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) rethrow;
       if (e.error is ApiException) throw e.error as ApiException;
       rethrow;
     }

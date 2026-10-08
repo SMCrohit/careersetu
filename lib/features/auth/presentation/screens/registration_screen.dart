@@ -20,10 +20,14 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
 
+  final _whatsappController = TextEditingController();
+  bool _isSameAsWhatsapp = true;
+
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _whatsappController.dispose();
     super.dispose();
   }
 
@@ -32,11 +36,12 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
       final success = await ref.read(authProvider.notifier).updateProfileDetails({
         'full_name': _nameController.text,
         'email': _emailController.text,
+        'whatsapp_number': _isSameAsWhatsapp ? (ref.read(authProvider).currentUser?.mobileNumber ?? '') : _whatsappController.text,
       });
 
       if (success) {
         if (!mounted) return;
-        Navigator.pushNamedAndRemoveUntil(context, '/complete_profile', (route) => false);
+        Navigator.pushNamedAndRemoveUntil(context, '/main', (route) => false);
       } else {
         if (!mounted) return;
         final error = ref.read(authProvider).error ?? 'Profile update failed';
@@ -50,15 +55,29 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
     final authState = ref.watch(authProvider);
     
     return Scaffold(
-      backgroundColor: AppColors.white,
+      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Career Setu', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         automaticallyImplyLeading: false,
       ),
-      body: SafeArea(
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFE3F1FF), // Slate 100 F1F5F9
+              Color(0xFFFFFFFF), // White
+            ],
+          ),
+        ),
+        child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Form(
@@ -66,9 +85,9 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Join Career Setu', style: Theme.of(context).textTheme.displayLarge),
+                  Text('Great!', style: Theme.of(context).textTheme.displayLarge),
                   const SizedBox(height: 8),
-                  Text('Find local jobs and build your career today.', style: Theme.of(context).textTheme.bodyLarge),
+                  Text('Just a couple of details to set up your account.', style: Theme.of(context).textTheme.bodyLarge),
                   const SizedBox(height: 32),
                   
                   CustomTextField(
@@ -90,6 +109,43 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                       return null;
                     },
                   ),
+                  const SizedBox(height: 16),
+                  
+                  CheckboxListTile(
+                    title: Text(
+                      'Is your WhatsApp number the same as this mobile number (+91 ${authState.currentUser?.mobileNumber ?? ''})?', 
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    value: _isSameAsWhatsapp,
+                    onChanged: (val) {
+                      setState(() {
+                        _isSameAsWhatsapp = val ?? true;
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: AppColors.primaryBrand,
+                  ),
+                  
+                  if (!_isSameAsWhatsapp) ...[
+                    const SizedBox(height: 8),
+                    CustomTextField(
+                      label: 'WhatsApp Number',
+                      hintText: '10-digit number',
+                      prefixText: '+91 ',
+                      keyboardType: TextInputType.phone,
+                      controller: _whatsappController,
+                      maxLength: 10,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) {
+                        if (!_isSameAsWhatsapp) {
+                          if (v == null || v.isEmpty) return 'Enter WhatsApp number';
+                          if (v.length != 10) return 'Must be exactly 10 digits';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                   
                   const SizedBox(height: 24),
                   const Text(
@@ -101,15 +157,19 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                   
                   authState.isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : PrimaryButton(
-                          text: 'Continue',
-                          onPressed: _saveProfile,
+                      : Center(
+                          child: PrimaryButton(
+                            text: 'Continue to Dashboard',
+                            width: MediaQuery.of(context).size.width * 0.7,
+                            onPressed: _saveProfile,
+                          ),
                         ),
                 ],
+              ),
               ),
             ),
           ),
         ),
-    );
+      );
   }
 }

@@ -57,6 +57,9 @@ dependencies:
   http: ^1.6.0
   showcaseview: ^5.1.0
   shared_preferences: ^2.5.5
+  google_fonts: ^6.2.1
+  lottie: ^3.1.2
+  curved_navigation_bar: ^1.0.6
 
 dev_dependencies:
   flutter_test:
@@ -84,7 +87,8 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - assets/images/logo.png
+    - assets/images/
+    - assets/animations/
     - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see
@@ -121,7 +125,7 @@ flutter_launcher_icons:
   adaptive_icon_foreground: "assets/images/logo_foreground.png"
 
 flutter_native_splash:
-  color: "#FFFFFF"
+  background_image: "assets/images/splash_bg.png"
   image: "assets/images/logo_foreground.png"
   android: true
   ios: true

@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import '../../../auth/domain/user_model.dart';
+import '../../domain/resume_draft.dart';
 import '../templates/template_1_professional.dart';
 import '../templates/template_2_modern_sidebar.dart';
 import '../templates/template_3_graphic_split.dart';
@@ -48,27 +48,44 @@ class ResumePdfGenerator {
     }
   }
 
-  static Future<Uint8List> generateResume(User user, int templateIndex) async {
-    await _fetchProfileImage(user.profileImageUrl);
+  static String _range(String start, String end) => [start, end].where((e) => e.isNotEmpty).join(' - ');
+
+  /// Builds the PDF for [draft] using one of the 10 templates.
+  static Future<Uint8List> generateResume(ResumeDraft draft, String? profileImageUrl, int templateIndex) async {
+    await _fetchProfileImage(profileImageUrl);
 
     final pdf = pw.Document();
 
-    final name = user.fullName;
-    final email = user.email;
-    final phone = user.mobileNumber;
-    final city = user.city;
-    final goal = user.goal;
+    final name = draft.fullName;
+    final email = draft.email;
+    final phone = draft.phone;
+    final city = draft.city;
+    final goal = draft.headline;
+    final summary = draft.summary;
 
-    final summary = user.resumeData?['summary'] ?? '';
-    
-    final experience = List<Map<String, dynamic>>.from(user.resumeData?['experience'] ?? []);
-
-    final education = List<Map<String, dynamic>>.from(user.resumeData?['education'] ?? []);
-
-    final skillsText = user.resumeData?['skills'] ?? '';
-    final skills = skillsText.isEmpty ? <String>[] : skillsText.split('\n');
-
-    final projects = List<Map<String, dynamic>>.from(user.resumeData?['projects'] ?? []);
+    // Map the draft into the shapes the templates read.
+    final experience = draft.experience
+        .map((e) => <String, dynamic>{
+              'title': e.title,
+              'company': [e.company, e.location].where((x) => x.isNotEmpty).join(', '),
+              'date': _range(e.start, e.end),
+              'bullets': e.bullets,
+            })
+        .toList();
+    final education = draft.education
+        .map((e) => <String, dynamic>{
+              'degree': e.score.isNotEmpty ? '${e.degree} (${e.score})' : e.degree,
+              'school': e.school,
+              'date': _range(e.start, e.end),
+            })
+        .toList();
+    final skills = draft.skills;
+    final projects = draft.projects
+        .map((p) => <String, dynamic>{
+              'title': p.title,
+              'bullets': [if (p.description.isNotEmpty) p.description, ...p.bullets],
+            })
+        .toList();
 
     final colors = [
       PdfColors.blue900,
@@ -94,8 +111,12 @@ class ResumePdfGenerator {
     
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: margin,
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: margin,
+          buildBackground: templateIndex == 2 ? buildTemplate3Background : null,
+        ),
+        header: templateIndex == 2 ? buildTemplate3Header : null,
         build: (context) {
           switch (templateIndex) {
             case 0:

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import 'dart:convert';
-import '../../domain/professional_model.dart';
 import '../providers/professionals_provider.dart';
 import 'professional_details_screen.dart';
 import '../widgets/reviews_bottom_sheet.dart';
@@ -43,8 +42,11 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
     final notifier = ref.read(professionalsProvider.notifier);
 
     String title = 'Professional Directory';
-    if (widget.filterProfession == 'Doctor') title = 'Doctors Directory';
-    else if (widget.filterProfession == 'Professional') title = 'Professionals Directory';
+    if (widget.filterProfession == 'Doctor') {
+      title = 'Doctors Directory';
+    } else if (widget.filterProfession == 'Professional') {
+      title = 'Professionals Directory';
+    }
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -141,18 +143,20 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                 filterRow,
                 Expanded(
                   child: RefreshIndicator(
-              onRefresh: () async {
-                await notifier.refresh();
-              },
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                child: Container(
-                  height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
-                  alignment: Alignment.center,
-                  child: const Text('No professionals found.', style: TextStyle(color: AppColors.secondaryText)),
+                    onRefresh: () async {
+                      await notifier.refresh();
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                      child: Container(
+                        height: MediaQuery.of(context).size.height - kToolbarHeight - 100,
+                        alignment: Alignment.center,
+                        child: const Text('No professionals found.', style: TextStyle(color: AppColors.secondaryText)),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            );
+              ],
             );
           }
           return Column(
@@ -326,7 +330,7 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
       return Image.memory(base64Decode(base64String), fit: BoxFit.cover, width: 60, height: 60);
     } else {
       return Image.network(imageUrl, fit: BoxFit.cover, width: 60, height: 60,
-          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 30, color: AppColors.secondaryText));
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.local_hospital, size: 30, color: AppColors.secondaryText));
     }
   }
 }
