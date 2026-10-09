@@ -62,8 +62,10 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
           foregroundColor: AppColors.primaryText,
           title: const Text('Result', style: AppText.screenTitle),
         ),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        body: SafeArea(
+          bottom: true,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
             _hero(),
             const SizedBox(height: 14),
@@ -79,6 +81,7 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
             ],
             PrimaryButton(text: _downloading ? 'Preparing report…' : 'Download report', onPressed: _downloading ? null : _download),
           ],
+        ),
         ),
       ),
     );
@@ -110,7 +113,9 @@ class _TestResultsScreenState extends ConsumerState<TestResultsScreen> {
               children: [
                 Text(r.testTitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.cardTitle.copyWith(color: Colors.white)),
                 const SizedBox(height: 6),
-                Text('Score ${r.scoreLabel}', style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.85))),
+                Text('Score: ${r.scoreLabel} total marks', style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.85))),
+                const SizedBox(height: 4),
+                Text('(Negative marking is applied for incorrect answers)', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7))),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 6,
@@ -477,8 +482,14 @@ class _ReviewSheetState extends State<_ReviewSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: Text('Q${index + 1}. ${q.text}', style: AppText.cardTitle.copyWith(fontSize: 14.5))),
-              const SizedBox(width: 8),
-              TestChip(label: statusLabel, color: statusColor),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  TestChip(label: statusLabel, color: statusColor),
+                  const SizedBox(height: 4),
+                  Text('${q.marksAwarded} / ${q.marks} Marks', style: AppText.label.copyWith(fontSize: 12)),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 10),

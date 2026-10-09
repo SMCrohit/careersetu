@@ -270,6 +270,7 @@ class QuestionReview {
   final String correctText;
   final bool isAttempted;
   final bool isCorrect;
+  final double marks;
   final double marksAwarded;
   final int timeSpentSeconds;
   final String explanation;
@@ -285,6 +286,7 @@ class QuestionReview {
     this.correctText = '',
     this.isAttempted = true,
     this.isCorrect = false,
+    this.marks = 0,
     this.marksAwarded = 0,
     this.timeSpentSeconds = 0,
     this.explanation = '',
@@ -307,6 +309,7 @@ class QuestionReview {
       correctText: _str(j['correct_option']),
       isAttempted: j['is_attempted'] is bool ? j['is_attempted'] as bool : (selectedIds.isNotEmpty || _str(j['selected_option']).isNotEmpty),
       isCorrect: j['is_correct'] == true,
+      marks: _double(j['marks']),
       marksAwarded: _double(j['marks_awarded']),
       timeSpentSeconds: _int(j['time_spent_seconds']),
       explanation: _str(j['explanation']),

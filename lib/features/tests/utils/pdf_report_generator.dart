@@ -57,7 +57,7 @@ class PdfReportGenerator {
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
               children: [
-                _stat('Score', result.scoreLabel, PdfColors.blue800),
+                _stat('Score', '${result.scoreLabel} total marks', PdfColors.blue800),
                 _stat('Percentage', '${result.percentage.toStringAsFixed(1)}%', PdfColors.indigo700),
                 _stat('Accuracy', '${result.accuracy}%', PdfColors.green700),
                 _stat('Correct', '${result.correct}', PdfColors.green800),
@@ -66,6 +66,8 @@ class PdfReportGenerator {
               ],
             ),
           ),
+          pw.SizedBox(height: 8),
+          pw.Text('(Negative marking is applied for incorrect answers)', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
           pw.SizedBox(height: 24),
 
           if (result.topicScores.isNotEmpty) ...[
@@ -147,7 +149,14 @@ class PdfReportGenerator {
         pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           pw.Expanded(child: pw.Text('Q${index + 1}. ${q.text}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold))),
           pw.SizedBox(width: 8),
-          pw.Text(status, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: color)),
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text(status, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: color)),
+              pw.SizedBox(height: 2),
+              pw.Text('${q.marksAwarded} / ${q.marks} Marks', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+            ],
+          ),
         ]),
         pw.SizedBox(height: 4),
         pw.Text('Your answer: ${texts(q.selectedIds, q.selectedText.isNotEmpty ? q.selectedText : '—')}', style: const pw.TextStyle(fontSize: 10)),

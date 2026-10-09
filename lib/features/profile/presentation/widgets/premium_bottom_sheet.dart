@@ -61,7 +61,11 @@ class PremiumBottomSheetLayout extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             // Content
-            child,
+            Flexible(
+              child: SingleChildScrollView(
+                child: child,
+              ),
+            ),
             const SizedBox(height: 24),
             // Gradient Button
             Container(
