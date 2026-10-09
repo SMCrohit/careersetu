@@ -293,6 +293,8 @@ class JobApplication(BaseModel):
     
     status = Column(String, default="applied")
     resume_snapshot_url = Column(Text, nullable=True)
+    # Copy of the profile resume at the time of applying: {"filename", "data" (base64 PDF)}
+    resume_snapshot = Column(JSON, nullable=True)
     cover_letter = Column(Text, nullable=True)
     screening_responses = Column(JSON, default={})
     

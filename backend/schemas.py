@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Any
-from datetime import datetime, date
+from datetime import datetime, date, time
 from uuid import UUID
 
 class ORMBase(BaseModel):
@@ -347,8 +347,6 @@ class JobApplicationBase(BaseModel):
 
 class JobApplicationCreate(BaseModel):
     job_id: UUID
-    status: str = "applied"
-    resume_snapshot_url: Optional[str] = None
     cover_letter: Optional[str] = None
     screening_responses: dict = {}
 
@@ -356,29 +354,35 @@ class JobApplication(JobApplicationBase, ORMBase):
     job: Optional[Job] = None
 
 class TestAttemptBase(BaseModel):
-    student_profile_id: UUID
+    student_profile_id: Optional[UUID] = None
     test_id: UUID
-    total_score: int
-    time_taken_seconds: int
+    total_score: float = 0
+    max_score: Optional[float] = None
+    percentage: Optional[float] = None
+    is_passed: Optional[bool] = None
+    time_taken_seconds: Optional[int] = 0
     question_responses: List[Any] = []
     ai_report: Optional[dict] = None
 
-class TestAttemptCreate(BaseModel):
+class AttemptAnswer(BaseModel):
+    question_id: UUID
+    selected_option_ids: List[str] = []
+    time_spent_seconds: int = 0
+
+class AttemptSubmit(BaseModel):
     test_id: UUID
-    total_score: int
-    time_taken_seconds: int
-    question_responses: List[Any] = []
-    ai_report: Optional[dict] = None
+    time_taken_seconds: int = 0
+    answers: List[AttemptAnswer] = []
 
 class TestAttempt(TestAttemptBase, ORMBase):
-    completed_at: datetime
+    completed_at: Optional[datetime] = None
     test: Optional[TestModel] = None
 
 class ProfessionalAppointmentBase(BaseModel):
     user_id: UUID
     professional_id: UUID
-    appointment_date: str
-    appointment_time: str
+    appointment_date: Optional[date] = None
+    appointment_time: Optional[time] = None
     status: str
     consultation_mode: Optional[str] = "In-Person"
     notes_by_student: Optional[str] = None
@@ -388,11 +392,10 @@ class ProfessionalAppointmentBase(BaseModel):
 
 class ProfessionalAppointmentCreate(BaseModel):
     professional_id: UUID
-    appointment_date: str
-    appointment_time: str
-    consultation_mode: str = "In-Person"
+    appointment_date: str  # "YYYY-MM-DD" (older builds send "Today" / "Oct 9, 2026")
+    appointment_time: str  # "02:00 PM"
+    consultation_mode: Optional[str] = None
     notes_by_student: Optional[str] = None
-    status: str = "pending"
 
 class ProfessionalAppointment(ProfessionalAppointmentBase, ORMBase):
     professional: Optional[Professional] = None

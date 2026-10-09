@@ -14,6 +14,8 @@ import '../widgets/resume_save_confirm_dialog.dart';
 import '../../data/resume_analysis_repository.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/widgets/custom_toast.dart';
+import '../../../../core/widgets/app_ui.dart';
+import '../../../../core/widgets/custom_buttons.dart';
 import 'resume_review_edit_screen.dart';
 import '../../../../core/constants/app_colors.dart';
 import 'settings_screen.dart';
@@ -644,22 +646,51 @@ class _ResumeBottomSheetState extends ConsumerState<ResumeBottomSheet> {
 
   Future<bool> _onWillPop() async {
     if (!_isLoading) return true;
-    
-    final shouldCancel = await showDialog<bool>(
+
+    final shouldCancel = await showModalBottomSheet<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel Upload?'),
-        content: const Text('Are you sure you want to cancel? Nothing will be saved.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true), 
-            child: const Text('Yes, Cancel', style: TextStyle(color: Colors.red)),
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+        decoration: const BoxDecoration(gradient: AppUi.backgroundGradient, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)))),
+              const SizedBox(height: 20),
+              const Text('Cancel upload?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+              const SizedBox(height: 6),
+              const Text('Your resume hasn\'t been saved yet. Nothing will change if you cancel.', style: AppText.subtitle),
+              const SizedBox(height: 20),
+              Row(children: [
+                Expanded(child: SecondaryButton(text: 'Keep uploading', fontSize: 14, onPressed: () => Navigator.pop(context, false))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.error,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      ),
+                      child: const Text('Cancel upload', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+              ]),
+            ],
           ),
-        ],
+        ),
       ),
     );
-    
+
     if (shouldCancel == true) {
       _cancelToken?.cancel();
       return true;
@@ -670,21 +701,33 @@ class _ResumeBottomSheetState extends ConsumerState<ResumeBottomSheet> {
   /// Shows upload percentage while the file is being sent, then the current step.
   Widget _buildProgress() {
     final uploading = _uploadProgress > 0 && _uploadProgress < 1;
-    return Column(
-      children: [
-        LinearProgressIndicator(
-          value: uploading ? _uploadProgress : null,
-          backgroundColor: AppColors.border,
-          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primaryBrand),
-        ),
-        const SizedBox(height: 8),
-        Center(
-          child: Text(
-            uploading ? 'Uploading... ${(_uploadProgress * 100).toStringAsFixed(0)}%' : _statusText,
-            style: const TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.card(),
+      child: Column(
+        children: [
+          Row(children: [
+            const Icon(Icons.auto_awesome, size: 18, color: AppUi.accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                uploading ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%' : _statusText,
+                style: AppText.value.copyWith(fontSize: 13.5),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: uploading ? _uploadProgress : null,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: const AlwaysStoppedAnimation<Color>(AppUi.accent),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -697,120 +740,94 @@ class _ResumeBottomSheetState extends ConsumerState<ResumeBottomSheet> {
       onWillPop: _onWillPop,
       child: Container(
         decoration: const BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          gradient: LinearGradient(colors: [Color(0xFFE3F1FF), Color(0xFFFFFFFF)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 24,
-          left: 24, right: 24, top: 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('My Resume', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                IconButton(
-                  icon: const Icon(Icons.close), 
-                  onPressed: () async {
-                    if (await _onWillPop()) {
-                      Navigator.pop(context);
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            if (hasResume) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundLight,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.borderDark),
-                ),
-                child: Row(
+                Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)))),
+                const SizedBox(height: 16),
+                Row(
                   children: [
-                    const Icon(Icons.picture_as_pdf, color: AppColors.primaryBrand, size: 40),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(filename, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 4),
-                          const Text('PDF Document', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-                        ],
-                      ),
+                    const Expanded(child: Text('My Resume', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)))),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: AppColors.secondaryText),
+                      onPressed: () async {
+                        if (await _onWillPop() && mounted) Navigator.pop(context);
+                      },
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 24),
-              if (_isLoading && _statusText.isNotEmpty) ...[
-                _buildProgress(),
-                const SizedBox(height: 24),
-              ] else ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _viewResume,
-                    icon: const Icon(Icons.visibility, color: Colors.white),
-                    label: const Text('View Resume', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryBrand,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: TextButton.icon(
-                    onPressed: _isLoading ? null : _uploadResume,
-                    icon: const Icon(Icons.edit, color: AppColors.secondaryText),
-                    label: const Text('Edit / Replace Resume', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.secondaryText)),
-                    style: TextButton.styleFrom(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ] else ...[
-              Center(
-                child: Column(
-                  children: [
-                    const Icon(Icons.upload_file, size: 64, color: AppColors.borderDark),
-                    const SizedBox(height: 16),
-                    const Text('No resume uploaded yet', style: TextStyle(color: AppColors.secondaryText, fontSize: 16)),
-                    const SizedBox(height: 24),
-                    if (_isLoading)
-                      _buildProgress()
-                    else
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          onPressed: _uploadResume,
-                          icon: const Icon(Icons.upload, color: Colors.white),
-                          label: const Text('Upload Resume (PDF, Max 5MB)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryBrand,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            elevation: 0,
+                const SizedBox(height: 16),
+                if (hasResume) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: AppUi.card(),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(12)),
+                          child: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626), size: 26),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(filename, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.value),
+                              const SizedBox(height: 2),
+                              const Text('PDF document', style: AppText.label),
+                            ],
                           ),
                         ),
-                      ),
+                        const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 22),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoading && _statusText.isNotEmpty) ...[
+                    _buildProgress(),
+                  ] else ...[
+                    PrimaryButton(text: 'View resume', onPressed: _isLoading ? null : _viewResume),
+                    const SizedBox(height: 12),
+                    SecondaryButton(text: 'Replace resume', onPressed: _isLoading ? null : _uploadResume),
                   ],
-                ),
-              ),
-            ],
-          ],
+                ] else ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppUi.accent.withOpacity(0.5), width: 1.4),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: const BoxDecoration(gradient: AppUi.accentGradient, shape: BoxShape.circle),
+                          child: const Icon(Icons.upload_file_rounded, color: Colors.white, size: 28),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text('No resume uploaded yet', style: AppText.value),
+                        const SizedBox(height: 4),
+                        const Text('PDF · max 5MB. We\'ll check it matches your profile.', textAlign: TextAlign.center, style: AppText.label),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoading) _buildProgress() else PrimaryButton(text: 'Upload resume', onPressed: _uploadResume),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

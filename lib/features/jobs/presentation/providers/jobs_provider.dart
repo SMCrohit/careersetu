@@ -1,131 +1,122 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../data/jobs_repository.dart';
-import '../../domain/job_model.dart';
-import '../../domain/job_filter_state.dart';
 import '../../../../core/api/api_client.dart';
+import '../../data/jobs_repository.dart';
+import '../../domain/job_application.dart';
+import '../../domain/job_filter_state.dart';
+import '../../domain/job_model.dart';
 
 class JobSearchQueryNotifier extends Notifier<String> {
   @override
   String build() => '';
-  void updateQuery(String value) => state = value;
+  void updateQuery(String value) => state = value.trim();
 }
-final jobSearchQueryProvider = NotifierProvider<JobSearchQueryNotifier, String>(() => JobSearchQueryNotifier());
+
+final jobSearchQueryProvider = NotifierProvider<JobSearchQueryNotifier, String>(JobSearchQueryNotifier.new);
 
 class JobFiltersNotifier extends Notifier<JobFilterState> {
   @override
-  JobFilterState build() => JobFilterState();
+  JobFilterState build() => const JobFilterState();
   void updateFilters(JobFilterState value) => state = value;
-  void clearFilters() => state = JobFilterState();
+  void clearFilters() => state = const JobFilterState();
 }
-final jobFiltersProvider = NotifierProvider<JobFiltersNotifier, JobFilterState>(() => JobFiltersNotifier());
 
+final jobFiltersProvider = NotifierProvider<JobFiltersNotifier, JobFilterState>(JobFiltersNotifier.new);
+
+/// Paged job list from the server. Rebuilds from page 1 when the search or filters change.
 class JobsNotifier extends AsyncNotifier<List<JobModel>> {
   int _page = 1;
-  bool _hasMore = true;
+  int _total = 0;
   bool _isFetchingMore = false;
-  
-  bool get hasMore => _hasMore;
+
+  int get total => _total;
+  bool get hasMore => (state.value?.length ?? 0) < _total;
   bool get isFetchingMore => _isFetchingMore;
 
   @override
   Future<List<JobModel>> build() async {
     _page = 1;
-    final repo = ref.read(jobsRepositoryProvider);
-    final query = ref.watch(jobSearchQueryProvider);
-    final filters = ref.watch(jobFiltersProvider);
-    
-    final jobs = await repo.fetchJobs(page: _page, query: query, filters: filters);
-    _hasMore = jobs.length == 10; // Default limit is 10
-    return jobs;
+    final result = await ref.read(jobsRepositoryProvider).fetchJobs(
+          query: ref.watch(jobSearchQueryProvider),
+          filters: ref.watch(jobFiltersProvider),
+        );
+    _total = result.total;
+    return result.jobs;
   }
 
   Future<void> fetchMore() async {
-    if (state.isLoading || _isFetchingMore || !_hasMore) return;
-
+    if (state.isLoading || state.hasError || _isFetchingMore || !hasMore) return;
     _isFetchingMore = true;
-    // Tell UI to rebuild with isFetchingMore flag
     state = AsyncData(state.value ?? []);
-
     try {
+      final result = await ref.read(jobsRepositoryProvider).fetchJobs(
+            page: _page + 1,
+            query: ref.read(jobSearchQueryProvider),
+            filters: ref.read(jobFiltersProvider),
+          );
       _page++;
-      final repo = ref.read(jobsRepositoryProvider);
-      final query = ref.read(jobSearchQueryProvider);
-      final filters = ref.read(jobFiltersProvider);
-      
-      final newJobs = await repo.fetchJobs(page: _page, query: query, filters: filters);
-      
-      if (newJobs.isEmpty || newJobs.length < 10) {
-        _hasMore = false;
-      }
-      
-      final currentJobs = state.value ?? [];
-      state = AsyncData([...currentJobs, ...newJobs]);
-    } catch (e, st) {
-      state = AsyncError(e, st);
+      _total = result.total;
+      final known = {for (final j in state.value ?? <JobModel>[]) j.id};
+      state = AsyncData([...?state.value, ...result.jobs.where((j) => !known.contains(j.id))]);
+    } catch (_) {
+      // Keep what's loaded; scrolling again retries.
+      state = AsyncData(state.value ?? []);
     } finally {
       _isFetchingMore = false;
     }
   }
+
+  void markApplied(String jobId) {
+    final jobs = state.value;
+    if (jobs == null) return;
+    state = AsyncData([
+      for (final j in jobs) j.id == jobId ? j.copyWith(hasApplied: true, applicantsCount: j.applicantsCount + 1) : j,
+    ]);
+  }
 }
 
-final jobsProvider = AsyncNotifierProvider<JobsNotifier, List<JobModel>>(() {
-  return JobsNotifier();
-});
+final jobsProvider = AsyncNotifierProvider<JobsNotifier, List<JobModel>>(JobsNotifier.new);
 
-class AppliedJobsNotifier extends AsyncNotifier<List<JobModel>> {
+/// The student's applications, newest first.
+class AppliedJobsNotifier extends AsyncNotifier<List<JobApplication>> {
   @override
-  Future<List<JobModel>> build() async {
-    final apiClient = ref.read(apiClientProvider);
-    try {
-      final response = await apiClient.get('/users/me/applications');
-      // The API returns a list of JobApplication objects which have a nested `job`
-      return (response.data as List).map((json) {
-        if (json['job'] != null) {
-          return JobModel.fromJson(json['job']);
-        }
-        return JobModel(
-          id: json['job_id'] ?? '',
-          title: 'Unknown Job',
-          company: '',
-          location: '',
-          salary: '',
-          type: '',
-          level: '',
-          description: '',
-          requirements: [],
-          postedTime: '',
-          applicants: '',
-        );
-      }).toList();
-    } catch (e) {
-      return [];
+  Future<List<JobApplication>> build() => ref.read(jobsRepositoryProvider).fetchApplications();
+
+  JobApplication? applicationFor(String jobId) {
+    for (final a in state.value ?? <JobApplication>[]) {
+      if (a.job.id == jobId) return a;
     }
+    return null;
   }
 
-  Future<void> applyJob(JobModel job) async {
-    final apiClient = ref.read(apiClientProvider);
+  /// Submits an application. Throws [ApiException] with a user-facing message on failure.
+  Future<JobApplication> apply(JobModel job, {String? coverLetter, Map<String, String> screeningResponses = const {}}) async {
     try {
-      await apiClient.post('/users/me/applications', data: {
-        'job_id': job.id,
-        'status': 'applied',
-      });
-      if (state.value != null && !state.value!.any((j) => j.id == job.id)) {
-        state = AsyncData([...state.value!, job]);
+      final application = await ref.read(jobsRepositoryProvider).apply(
+            job.id,
+            coverLetter: coverLetter,
+            screeningResponses: screeningResponses,
+          );
+      state = AsyncData([application, ...?state.value?.where((a) => a.job.id != job.id)]);
+      ref.read(jobsProvider.notifier).markApplied(job.id);
+      return application;
+    } on ApiException catch (e) {
+      // Already applied (e.g. from another device): sync the list so the UI shows it.
+      if (e.statusCode == 409) {
+        ref.invalidateSelf();
+        ref.read(jobsProvider.notifier).markApplied(job.id);
       }
-    } catch (e) {
-      // Handle implicitly
+      rethrow;
     }
   }
 }
 
-final appliedJobsProvider = AsyncNotifierProvider<AppliedJobsNotifier, List<JobModel>>(() {
-  return AppliedJobsNotifier();
+final appliedJobsProvider = AsyncNotifierProvider<AppliedJobsNotifier, List<JobApplication>>(AppliedJobsNotifier.new);
+
+/// One job, refreshed from the server (used by the details screen).
+final jobDetailsProvider = FutureProvider.autoDispose.family<JobModel, String>((ref, id) {
+  return ref.read(jobsRepositoryProvider).fetchJob(id);
 });
 
-final jobLocationsProvider = FutureProvider.autoDispose<List<String>>((ref) async {
-  return ref.read(jobsRepositoryProvider).fetchJobLocations();
-});
-
-final jobProfessionsProvider = FutureProvider.autoDispose<List<String>>((ref) async {
-  return ref.read(jobsRepositoryProvider).fetchJobProfessions();
+final jobFilterOptionsProvider = FutureProvider.autoDispose<JobFilterOptions>((ref) {
+  return ref.read(jobsRepositoryProvider).fetchFilterOptions();
 });

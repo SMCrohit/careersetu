@@ -1,45 +1,42 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/api/api_client.dart';
 import '../../domain/notification_model.dart';
-import '../../../jobs/data/jobs_repository.dart'; // To get apiClientProvider
 
 class NotificationsNotifier extends AsyncNotifier<List<NotificationModel>> {
   @override
   Future<List<NotificationModel>> build() async {
-    final apiClient = ref.read(apiClientProvider);
-    try {
-      final response = await apiClient.get('/users/me/notifications');
-      return (response.data as List).map((json) => NotificationModel.fromJson(json)).toList();
-    } catch (e) {
-      return [];
-    }
+    final response = await ref.read(apiClientProvider).get('/users/me/notifications');
+    return (response.data as List? ?? [])
+        .whereType<Map>()
+        .map((e) => NotificationModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  void _setRead(Set<String> ids) {
+    final list = state.value;
+    if (list == null) return;
+    state = AsyncData([for (final n in list) ids.contains(n.id) ? n.copyWith(isRead: true) : n]);
   }
 
   Future<void> markAsRead(String id) async {
-    final apiClient = ref.read(apiClientProvider);
+    _setRead({id});
     try {
-      await apiClient.put('/users/me/notifications/$id/read');
-      // Update local state
-      if (state.value != null) {
-        state = AsyncData(state.value!.map((n) {
-          if (n.id == id) {
-            return NotificationModel(
-              id: n.id,
-              title: n.title,
-              message: n.message,
-              isRead: true,
-              time: n.time,
-            );
-          }
-          return n;
-        }).toList());
-      }
-    } catch (e) {
-      // Handle error implicitly
+      await ref.read(apiClientProvider).put('/users/me/notifications/$id/read');
+    } catch (_) {
+      // Reading a notification is low-stakes; it syncs on the next refresh.
     }
+  }
+
+  Future<void> markAllRead() async {
+    final unread = (state.value ?? []).where((n) => !n.isRead).map((n) => n.id).toSet();
+    if (unread.isEmpty) return;
+    _setRead(unread);
+    await Future.wait(unread.map((id) async {
+      try {
+        await ref.read(apiClientProvider).put('/users/me/notifications/$id/read');
+      } catch (_) {}
+    }));
   }
 }
 
-final notificationsProvider = AsyncNotifierProvider<NotificationsNotifier, List<NotificationModel>>(() {
-  return NotificationsNotifier();
-});
+final notificationsProvider = AsyncNotifierProvider<NotificationsNotifier, List<NotificationModel>>(NotificationsNotifier.new);

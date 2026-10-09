@@ -1,354 +1,259 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/api/api_client.dart';
 import '../../data/tests_repository.dart';
 import '../../domain/test_model.dart';
-import '../../../jobs/data/jobs_repository.dart'; // to get apiClientProvider
 
-
-class ActiveTestState {
-  final TestModel? test;
-  final int currentQuestionIndex;
-  final Map<int, int> selectedAnswers;
-  final Map<int, int> timeSpentPerQuestion;
-  final int timeRemaining;
-  final bool isFinished;
+/// A paged list of tests from `GET /tests?status=...`.
+class TestListState {
+  final List<TestSummary> items;
+  final int total;
   final bool isLoading;
-  final Map<String, dynamic>? aiReport;
+  final bool isLoadingMore;
+  final String? error;
 
-  ActiveTestState({
-    this.test,
-    this.currentQuestionIndex = 0,
-    this.selectedAnswers = const {},
-    this.timeSpentPerQuestion = const {},
-    this.timeRemaining = 600, // 10 minutes
-    this.isFinished = false,
-    this.isLoading = false,
-    this.aiReport,
-  });
+  const TestListState({this.items = const [], this.total = 0, this.isLoading = true, this.isLoadingMore = false, this.error});
 
-  ActiveTestState copyWith({
-    TestModel? test,
-    int? currentQuestionIndex,
-    Map<int, int>? selectedAnswers,
-    Map<int, int>? timeSpentPerQuestion,
-    int? timeRemaining,
-    bool? isFinished,
-    bool? isLoading,
-    Map<String, dynamic>? aiReport,
-  }) {
-    return ActiveTestState(
-      test: test ?? this.test,
-      currentQuestionIndex: currentQuestionIndex ?? this.currentQuestionIndex,
-      selectedAnswers: selectedAnswers ?? this.selectedAnswers,
-      timeSpentPerQuestion: timeSpentPerQuestion ?? this.timeSpentPerQuestion,
-      timeRemaining: timeRemaining ?? this.timeRemaining,
-      isFinished: isFinished ?? this.isFinished,
-      isLoading: isLoading ?? this.isLoading,
-      aiReport: aiReport ?? this.aiReport,
-    );
-  }
-}
+  bool get hasMore => items.length < total;
 
-class ActiveTestNotifier extends Notifier<ActiveTestState> {
-  Timer? _timer;
-
-  @override
-  ActiveTestState build() {
-    ref.onDispose(() {
-      _timer?.cancel();
-    });
-    return ActiveTestState();
-  }
-
-  void cancelTest() {
-    _timer?.cancel();
-    state = ActiveTestState();
-  }
-
-  Future<void> loadTest(String testId) async {
-    state = ActiveTestState(isLoading: true);
-    final repo = ref.read(testsRepositoryProvider);
-    final test = await repo.fetchTest(testId);
-    
-    int initialTime = test.durationMins * 60;
-    if (test.testMode == 'per_question' && test.questions.isNotEmpty) {
-      initialTime = test.questions[0].expectedTimeSeconds > 0 
-          ? test.questions[0].expectedTimeSeconds 
-          : 60;
-    }
-    
-    state = ActiveTestState(test: test, timeRemaining: initialTime);
-    _startTimer();
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (state.timeRemaining > 0) {
-        final newTimeSpent = Map<int, int>.from(state.timeSpentPerQuestion);
-        newTimeSpent[state.currentQuestionIndex] = (newTimeSpent[state.currentQuestionIndex] ?? 0) + 1;
-        
-        state = state.copyWith(
-          timeRemaining: state.timeRemaining - 1,
-          timeSpentPerQuestion: newTimeSpent,
-        );
-      } else {
-        if (state.test?.testMode == 'per_question') {
-          if (state.currentQuestionIndex < state.test!.questions.length - 1) {
-            nextQuestion();
-          } else {
-            submitTest();
-          }
-        } else {
-          submitTest();
-        }
-      }
-    });
-  }
-
-  void selectAnswer(int optionIndex) {
-    if (state.isFinished) return;
-    final newAnswers = Map<int, int>.from(state.selectedAnswers);
-    newAnswers[state.currentQuestionIndex] = optionIndex;
-    state = state.copyWith(selectedAnswers: newAnswers);
-  }
-
-  void nextQuestion() {
-    if (state.test == null) return;
-    if (state.currentQuestionIndex < state.test!.questions.length - 1) {
-      int nextIdx = state.currentQuestionIndex + 1;
-      int nextTime = state.timeRemaining;
-      
-      if (state.test!.testMode == 'per_question') {
-        nextTime = state.test!.questions[nextIdx].expectedTimeSeconds > 0
-            ? state.test!.questions[nextIdx].expectedTimeSeconds
-            : 60;
-      }
-      
-      state = state.copyWith(
-        currentQuestionIndex: nextIdx,
-        timeRemaining: nextTime,
+  TestListState copyWith({List<TestSummary>? items, int? total, bool? isLoading, bool? isLoadingMore, String? error, bool clearError = false}) =>
+      TestListState(
+        items: items ?? this.items,
+        total: total ?? this.total,
+        isLoading: isLoading ?? this.isLoading,
+        isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+        error: clearError ? null : error ?? this.error,
       );
-    }
-  }
-
-  void previousQuestion() {
-    if (state.currentQuestionIndex > 0) {
-      state = state.copyWith(currentQuestionIndex: state.currentQuestionIndex - 1);
-    }
-  }
-
-  Future<void> submitTest() async {
-    _timer?.cancel();
-    final currentTest = state.test;
-    if (currentTest == null) return;
-    
-    state = state.copyWith(isLoading: true);
-
-    int totalScore = 0;
-    int totalTime = 0;
-    List<Map<String, dynamic>> responses = [];
-
-    for (int i = 0; i < currentTest.questions.length; i++) {
-      final q = currentTest.questions[i];
-      final ansIdx = state.selectedAnswers[i];
-      final isCorrect = ansIdx != null && q.options.isNotEmpty && ansIdx < q.options.length && q.options[ansIdx] == q.correctAnswer;
-      
-      if (isCorrect) totalScore += q.points;
-      
-      final tSpent = state.timeSpentPerQuestion[i] ?? 0;
-      totalTime += tSpent;
-      
-      responses.add({
-         'question_id': q.id,
-         'is_correct': isCorrect,
-         'time_spent_seconds': tSpent,
-      });
-    }
-
-    final payload = {
-      'test_id': currentTest.id,
-      'total_score': totalScore,
-      'time_taken_seconds': totalTime,
-      'question_responses': responses,
-    };
-    
-    try {
-        final apiClient = ref.read(apiClientProvider);
-        final response = await apiClient.post('/users/me/test-attempts', data: payload);
-        
-        Map<String, dynamic>? report;
-        if (response.data['ai_report'] != null) {
-            report = Map<String, dynamic>.from(response.data['ai_report']);
-        }
-        
-        state = state.copyWith(isFinished: true, isLoading: false, aiReport: report);
-        
-        // Save the full payload so it's available for the report immediately
-        final fullAttempt = Map<String, dynamic>.from(payload);
-        if (report != null) fullAttempt['ai_report'] = report;
-        
-        ref.read(completedTestsProvider.notifier).saveLocalScore(currentTest.id, totalScore, fullAttempt: fullAttempt);
-    } catch (e) {
-        debugPrint('Submit test failed: $e');
-        state = state.copyWith(isFinished: true, isLoading: false);
-    }
-  }
-
-  int get score {
-    if (state.test == null) return 0;
-    int s = 0;
-    for (int i = 0; i < state.test!.questions.length; i++) {
-      final q = state.test!.questions[i];
-      final selected = state.selectedAnswers[i];
-      if (selected != null && q.options.isNotEmpty && selected < q.options.length && q.options[selected] == q.correctAnswer) {
-        s += q.points;
-      }
-    }
-    return s;
-  }
 }
 
-class CompletedTestsNotifier extends AsyncNotifier<Map<String, Map<String, dynamic>>> {
-  @override
-  Future<Map<String, Map<String, dynamic>>> build() async {
-    final apiClient = ref.read(apiClientProvider);
-    try {
-      final response = await apiClient.get('/users/me/test-attempts');
-      final Map<String, Map<String, dynamic>> attempts = {};
-      for (var item in response.data) {
-        final String testId = item['test_id'];
-        final int score = (item['total_score'] as num?)?.toInt() ?? (item['score'] as num?)?.toInt() ?? 0;
-        final int existingScore = attempts.containsKey(testId) ? ((attempts[testId]!['total_score'] as num?)?.toInt() ?? (attempts[testId]!['score'] as num?)?.toInt() ?? 0) : -1;
-        
-        if (!attempts.containsKey(testId) || score > existingScore) {
-          attempts[testId] = item;
-        }
-      }
-      return attempts;
-    } catch (e) {
-      return {};
-    }
-  }
-
-  void saveLocalScore(String testId, int score, {Map<String, dynamic>? fullAttempt}) {
-      final current = state.value ?? {};
-      final updated = Map<String, Map<String, dynamic>>.from(current);
-      final existingScore = updated.containsKey(testId) ? ((updated[testId]!['total_score'] as num?)?.toInt() ?? (updated[testId]!['score'] as num?)?.toInt() ?? 0) : -1;
-      
-      if (!updated.containsKey(testId) || score > existingScore) {
-        updated[testId] = fullAttempt ?? {'test_id': testId, 'total_score': score};
-      }
-      state = AsyncValue.data(updated);
-  }
-}
-
-final completedTestsProvider = AsyncNotifierProvider<CompletedTestsNotifier, Map<String, Map<String, dynamic>>>(() {
-  return CompletedTestsNotifier();
-});
-
-final activeTestProvider = NotifierProvider<ActiveTestNotifier, ActiveTestState>(() {
-  return ActiveTestNotifier();
-});
-
-class PaginatedTestsState {
-  final List<TestModel> items;
-  final bool isLoading;
-  final bool hasMore;
-  final int currentSkip;
+class TestListNotifier extends Notifier<TestListState> {
   final String status;
+  int _page = 1;
 
-  PaginatedTestsState({
-    this.items = const [],
-    this.isLoading = false,
-    this.hasMore = true,
-    this.currentSkip = 0,
-    required this.status,
-  });
-
-  PaginatedTestsState copyWith({
-    List<TestModel>? items,
-    bool? isLoading,
-    bool? hasMore,
-    int? currentSkip,
-    String? status,
-  }) {
-    return PaginatedTestsState(
-      items: items ?? this.items,
-      isLoading: isLoading ?? this.isLoading,
-      hasMore: hasMore ?? this.hasMore,
-      currentSkip: currentSkip ?? this.currentSkip,
-      status: status ?? this.status,
-    );
-  }
-}
-
-class PaginatedTestsNotifier extends Notifier<PaginatedTestsState> {
-  final String status;
-
-  PaginatedTestsNotifier(this.status);
+  TestListNotifier(this.status);
 
   @override
-  PaginatedTestsState build() {
-    _fetchInitial();
-    return PaginatedTestsState(status: status, isLoading: true);
-  }
-
-  Future<void> _fetchInitial() async {
-    try {
-      final repo = ref.read(testsRepositoryProvider);
-      final fetched = await repo.fetchAllTests(status: status, skip: 0, limit: 20);
-      state = state.copyWith(
-        items: fetched,
-        isLoading: false,
-        hasMore: fetched.length == 20,
-        currentSkip: fetched.length,
-      );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, hasMore: false);
-    }
+  TestListState build() {
+    Future.microtask(refresh);
+    return const TestListState();
   }
 
   Future<void> refresh() async {
-    state = state.copyWith(isLoading: true, hasMore: true, currentSkip: 0);
-    final repo = ref.read(testsRepositoryProvider);
+    state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final fetched = await repo.fetchAllTests(status: status, skip: 0, limit: 20);
-      state = state.copyWith(
-        items: fetched,
-        isLoading: false,
-        hasMore: fetched.length == 20,
-        currentSkip: fetched.length,
-      );
+      final page = await ref.read(testsRepositoryProvider).fetchTests(status: status);
+      _page = 1;
+      state = TestListState(items: page.tests, total: page.total, isLoading: false);
     } catch (e) {
-      state = state.copyWith(isLoading: false, hasMore: false);
+      state = state.copyWith(isLoading: false, error: e is ApiException ? e.message : 'Could not load tests.');
     }
   }
 
   Future<void> fetchNextPage() async {
-    if (state.isLoading || !state.hasMore) return;
-
-    state = state.copyWith(isLoading: true);
-    final repo = ref.read(testsRepositoryProvider);
+    if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
+    state = state.copyWith(isLoadingMore: true);
     try {
-      final fetched = await repo.fetchAllTests(status: status, skip: state.currentSkip, limit: 20);
+      final page = await ref.read(testsRepositoryProvider).fetchTests(status: status, page: _page + 1);
+      _page++;
+      final known = {for (final t in state.items) t.id};
       state = state.copyWith(
-        items: [...state.items, ...fetched],
-        isLoading: false,
-        hasMore: fetched.length == 20,
-        currentSkip: state.currentSkip + fetched.length,
+        items: [...state.items, ...page.tests.where((t) => !known.contains(t.id))],
+        total: page.total,
+        isLoadingMore: false,
       );
-    } catch (e) {
-      state = state.copyWith(isLoading: false);
+    } catch (_) {
+      state = state.copyWith(isLoadingMore: false);
     }
   }
 }
 
-final availableTestsProvider = NotifierProvider<PaginatedTestsNotifier, PaginatedTestsState>(() {
-  return PaginatedTestsNotifier('available');
+/// Active tests the user hasn't taken yet (Tests tab).
+final activeTestsProvider = NotifierProvider<TestListNotifier, TestListState>(() => TestListNotifier('available'));
+
+/// Tests the user has taken, with best scores (My Tests).
+final myTestsProvider = NotifierProvider<TestListNotifier, TestListState>(() => TestListNotifier('attempted'));
+
+/// A past result, loaded by attempt id.
+final attemptResultProvider = FutureProvider.autoDispose.family<AttemptResult, String>((ref, id) {
+  return ref.read(testsRepositoryProvider).fetchAttempt(id);
 });
 
-final attemptedTestsProvider = NotifierProvider<PaginatedTestsNotifier, PaginatedTestsState>(() {
-  return PaginatedTestsNotifier('attempted');
-});
+// ---------------------------------------------------------------------------
+// Taking a test
+// ---------------------------------------------------------------------------
+
+class ExamState {
+  final ActiveTest? test;
+  final bool isLoading;
+  final bool isSubmitting;
+  final String? error;
+  final int index;
+
+  /// Selected option ids per question id.
+  final Map<String, Set<String>> answers;
+
+  /// Seconds spent per question id.
+  final Map<String, int> timeSpent;
+
+  /// Seconds left: for the whole test, or for the current question in per-question mode.
+  final int timeLeft;
+  final AttemptResult? result;
+
+  const ExamState({
+    this.test,
+    this.isLoading = false,
+    this.isSubmitting = false,
+    this.error,
+    this.index = 0,
+    this.answers = const {},
+    this.timeSpent = const {},
+    this.timeLeft = 0,
+    this.result,
+  });
+
+  TestQuestion? get question => test == null || test!.questions.isEmpty ? null : test!.questions[index];
+  int get total => test?.questions.length ?? 0;
+  bool get isLast => index >= total - 1;
+  bool get isPerQuestion => test?.info.isPerQuestion ?? false;
+  int get answeredCount => answers.values.where((s) => s.isNotEmpty).length;
+  bool isAnswered(String questionId) => answers[questionId]?.isNotEmpty ?? false;
+
+  ExamState copyWith({
+    ActiveTest? test,
+    bool? isLoading,
+    bool? isSubmitting,
+    String? error,
+    bool clearError = false,
+    int? index,
+    Map<String, Set<String>>? answers,
+    Map<String, int>? timeSpent,
+    int? timeLeft,
+    AttemptResult? result,
+  }) =>
+      ExamState(
+        test: test ?? this.test,
+        isLoading: isLoading ?? this.isLoading,
+        isSubmitting: isSubmitting ?? this.isSubmitting,
+        error: clearError ? null : error ?? this.error,
+        index: index ?? this.index,
+        answers: answers ?? this.answers,
+        timeSpent: timeSpent ?? this.timeSpent,
+        timeLeft: timeLeft ?? this.timeLeft,
+        result: result ?? this.result,
+      );
+}
+
+class ExamNotifier extends Notifier<ExamState> {
+  Timer? _timer;
+
+  @override
+  ExamState build() {
+    ref.onDispose(() => _timer?.cancel());
+    return const ExamState();
+  }
+
+  Future<void> start(String testId) async {
+    _timer?.cancel();
+    state = const ExamState(isLoading: true);
+    try {
+      final test = await ref.read(testsRepositoryProvider).startTest(testId);
+      if (test.questions.isEmpty) {
+        state = const ExamState(error: 'This test has no questions yet.');
+        return;
+      }
+      state = ExamState(test: test, timeLeft: _timeFor(test, 0));
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    } catch (e) {
+      state = ExamState(error: e is ApiException ? e.message : 'Could not start the test. Please try again.');
+    }
+  }
+
+  int _timeFor(ActiveTest test, int index) {
+    if (test.info.isPerQuestion) return test.questions[index].timeLimitSeconds;
+    final mins = test.info.durationMins > 0 ? test.info.durationMins : 10;
+    return mins * 60;
+  }
+
+  void _tick() {
+    final q = state.question;
+    if (q == null || state.isSubmitting || state.result != null) return;
+    final spent = Map<String, int>.from(state.timeSpent)..update(q.id, (v) => v + 1, ifAbsent: () => 1);
+    final left = state.timeLeft - 1;
+    state = state.copyWith(timeSpent: spent, timeLeft: left < 0 ? 0 : left);
+    if (left > 0) return;
+    // Time is up: next question in per-question mode, otherwise submit.
+    if (state.isPerQuestion && !state.isLast) {
+      next();
+    } else {
+      submit();
+    }
+  }
+
+  void toggleOption(String optionId) {
+    final q = state.question;
+    if (q == null || state.isSubmitting) return;
+    final answers = Map<String, Set<String>>.from(state.answers);
+    final current = Set<String>.from(answers[q.id] ?? {});
+    if (q.isMulti) {
+      current.contains(optionId) ? current.remove(optionId) : current.add(optionId);
+    } else {
+      current
+        ..clear()
+        ..add(optionId);
+    }
+    answers[q.id] = current;
+    state = state.copyWith(answers: answers);
+  }
+
+  void next() {
+    final test = state.test;
+    if (test == null || state.isLast) return;
+    final i = state.index + 1;
+    state = state.copyWith(index: i, timeLeft: state.isPerQuestion ? _timeFor(test, i) : null);
+  }
+
+  /// Going back and jumping are only allowed when the whole test shares one timer.
+  void previous() {
+    if (state.isPerQuestion || state.index == 0) return;
+    state = state.copyWith(index: state.index - 1);
+  }
+
+  void jumpTo(int i) {
+    if (state.isPerQuestion || i < 0 || i >= state.total) return;
+    state = state.copyWith(index: i);
+  }
+
+  Future<void> submit() async {
+    final test = state.test;
+    if (test == null || state.isSubmitting || state.result != null) return;
+    _timer?.cancel();
+    state = state.copyWith(isSubmitting: true, clearError: true);
+    try {
+      final result = await ref.read(testsRepositoryProvider).submitAttempt(
+            testId: test.info.id,
+            timeTakenSeconds: state.timeSpent.values.fold(0, (a, b) => a + b),
+            answers: [
+              for (final q in test.questions)
+                {
+                  'question_id': q.id,
+                  'selected_option_ids': (state.answers[q.id] ?? {}).toList(),
+                  'time_spent_seconds': state.timeSpent[q.id] ?? 0,
+                },
+            ],
+          );
+      state = state.copyWith(isSubmitting: false, result: result);
+      ref.invalidate(activeTestsProvider);
+      ref.invalidate(myTestsProvider);
+    } catch (e) {
+      // Keep the answers so the user can retry; the timer stays stopped.
+      state = state.copyWith(isSubmitting: false, error: e is ApiException ? e.message : 'Could not submit. Check your connection and try again.');
+    }
+  }
+
+  void reset() {
+    _timer?.cancel();
+    state = const ExamState();
+  }
+}
+
+final examProvider = NotifierProvider<ExamNotifier, ExamState>(ExamNotifier.new);

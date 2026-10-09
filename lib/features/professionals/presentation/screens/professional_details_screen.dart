@@ -1,684 +1,482 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/widgets/app_ui.dart';
 import '../../../../core/widgets/custom_buttons.dart';
 import '../../../../core/widgets/custom_toast.dart';
-import '../../domain/professional_model.dart';
-import '../../data/professionals_repository.dart';
+import '../../../appointments/domain/appointment_model.dart';
 import '../../../appointments/presentation/providers/appointments_provider.dart';
+import '../../domain/availability.dart';
+import '../../domain/professional_model.dart';
+import '../providers/professional_reviews_provider.dart';
+import '../providers/professionals_provider.dart';
+import '../widgets/booking_confirm_sheet.dart';
+import '../widgets/professional_avatar.dart';
+import '../widgets/professional_card.dart';
+import '../widgets/review_sheet.dart';
 import '../widgets/reviews_bottom_sheet.dart';
-import 'dart:convert';
-import 'package:intl/intl.dart';
 
+/// Profile of a professional with booking. When opened from My Appointments, [appointment]
+/// replaces the booking bar with that appointment's status and actions.
 class ProfessionalDetailsScreen extends ConsumerStatefulWidget {
   final Professional professional;
-  final String? bookingContext;
-  const ProfessionalDetailsScreen({super.key, required this.professional, this.bookingContext});
+  final Appointment? appointment;
+
+  const ProfessionalDetailsScreen({super.key, required this.professional, this.appointment});
 
   @override
   ConsumerState<ProfessionalDetailsScreen> createState() => _ProfessionalDetailsScreenState();
 }
 
 class _ProfessionalDetailsScreenState extends ConsumerState<ProfessionalDetailsScreen> {
-  String? selectedTime;
-  late DateTime selectedDate;
-  late List<DateTime> availableDates;
-  List<String> bookedSlots = [];
-  bool isLoadingSlots = false;
+  String? _selectedDate;
+  String? _selectedTime;
 
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    selectedDate = DateTime(now.year, now.month, now.day);
-    availableDates = List.generate(30, (index) => DateTime(now.year, now.month, now.day).add(Duration(days: index)));
-    _fetchBookedSlots();
-  }
+  Professional get _initial => widget.professional;
 
-  Future<void> _fetchBookedSlots() async {
-    setState(() => isLoadingSlots = true);
-    final String dateStr = selectedDate.isAtSameMomentAs(availableDates.first) 
-        ? 'Today' 
-        : DateFormat('MMM d, yyyy').format(selectedDate);
-    final repo = ref.read(professionalsRepositoryProvider);
-    final slots = await repo.getBookedSlots(widget.professional.id, dateStr);
-    if (mounted) {
-      setState(() {
-        bookedSlots = slots;
-        isLoadingSlots = false;
-      });
+  Future<void> _book(Professional p, List<AvailableDate> dates) async {
+    final date = dates.where((d) => d.isoDate == _selectedDate).firstOrNull;
+    final time = _selectedTime;
+    if (date == null || time == null) return;
+    final booked = await BookingConfirmSheet.show(context, p, date, time);
+    if (!mounted) return;
+    setState(() => _selectedTime = null);
+    if (booked) {
+      CustomToast.showSuccess(context, 'Booking requested for ${DateFormat('EEE, d MMM').format(date.date)} at $time');
     }
+    // Refresh in both cases: a failed booking usually means the slot just filled.
+    ref.invalidate(professionalAvailabilityProvider(p.id));
   }
 
-  bool _isTimeSlotPassed(String timeStr) {
-    final now = DateTime.now();
-    final isToday = selectedDate.year == now.year && selectedDate.month == now.month && selectedDate.day == now.day;
-    if (!isToday) return false;
-
+  Future<void> _cancelAppointment(Appointment a) async {
+    final reason = TextEditingController();
+    final confirm = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+          decoration: const BoxDecoration(gradient: AppUi.backgroundGradient, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Cancel appointment?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppUi.ink)),
+                const SizedBox(height: 6),
+                const Text('The slot will be released for others.', style: AppText.subtitle),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: reason,
+                  decoration: InputDecoration(
+                    hintText: 'Reason (optional)',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(child: SecondaryButton(text: 'Keep it', onPressed: () => Navigator.pop(context, false))),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.error,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                        ),
+                        child: const Text('Cancel booking', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (confirm != true || !mounted) return;
     try {
-      final format = DateFormat('hh:mm a');
-      final time = format.parse(timeStr);
-      final slotTime = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, time.hour, time.minute);
-      return slotTime.isBefore(now);
-    } catch (e) {
-      return false;
+      await ref.read(appointmentsProvider.notifier).cancel(a, reason: reason.text);
+      if (mounted) {
+        CustomToast.showSuccess(context, 'Appointment cancelled');
+        Navigator.pop(context);
+      }
+    } on ApiException catch (e) {
+      if (mounted) CustomToast.showError(context, e.message);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final doc = widget.professional;
+    final p = ref.watch(professionalDetailsProvider(_initial.id)).value ?? _initial;
+    final availability = ref.watch(professionalAvailabilityProvider(p.id));
+    final dates = availability.value ?? const <AvailableDate>[];
+    // Default to the first open date once availability loads.
+    if (_selectedDate == null && dates.isNotEmpty) _selectedDate = dates.first.isoDate;
+    final selectedDate = dates.where((d) => d.isoDate == _selectedDate).firstOrNull;
 
-    final String? ctx = widget.bookingContext;
-    final bool isUpcoming = ctx == 'CONFIRMED' || ctx == 'PENDING APPROVAL' || ctx == 'upcoming';
-    final bool isPast = ctx == 'ATTENDED' || ctx == 'MISSED' || ctx == 'CANCELLED' || ctx == 'EXPIRED' || ctx == 'past';
+    return Container(
+      decoration: const BoxDecoration(gradient: AppUi.backgroundGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: AppColors.primaryText,
+          title: Text(p.isDoctor ? 'Doctor profile' : 'Profile', style: AppText.screenTitle),
+        ),
+        body: RefreshIndicator(
+          color: AppUi.accent,
+          onRefresh: () async {
+            ref.invalidate(professionalDetailsProvider(p.id));
+            ref.invalidate(professionalReviewsProvider(p.id));
+            ref.invalidate(professionalAvailabilityProvider(p.id));
+            await ref.read(professionalAvailabilityProvider(p.id).future);
+          },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            children: [
+              _header(p),
+              const SizedBox(height: 12),
+              _quickFacts(p),
+              if ((p.description ?? '').isNotEmpty) _card('About', Icons.info_outline_rounded, [Text(p.description!, style: AppText.body)]),
+              _card(p.isDoctor ? 'Clinic' : 'Office', Icons.apartment_rounded, [
+                Text(p.clinic.isNotEmpty ? p.clinic : '—', style: AppText.value),
+                if (p.locationCity.isNotEmpty) Text(p.locationCity, style: AppText.label),
+              ]),
+              if (p.languagesSpoken.isNotEmpty || p.consultationMode.isNotEmpty)
+                _card('Consultation', Icons.forum_outlined, [
+                  if (p.consultationMode.isNotEmpty) ...[
+                    const Text('Modes', style: AppText.label),
+                    const SizedBox(height: 6),
+                    Wrap(spacing: 6, runSpacing: 6, children: p.consultationMode.map((m) => ProChip(label: m, icon: modeIcon(m))).toList()),
+                    const SizedBox(height: 10),
+                  ],
+                  if (p.languagesSpoken.isNotEmpty) ...[
+                    const Text('Languages', style: AppText.label),
+                    const SizedBox(height: 6),
+                    Wrap(spacing: 6, runSpacing: 6, children: p.languagesSpoken.map((l) => ProChip(label: l, color: AppColors.secondaryText)).toList()),
+                  ],
+                ]),
+              if (widget.appointment == null) _bookingCard(p, availability, dates, selectedDate),
+              _reviewsPreview(p),
+            ],
+          ),
+        ),
+        bottomNavigationBar: _bottomBar(p, dates),
+      ),
+    );
+  }
 
-    Widget bottomBarContent;
-
-    if (isUpcoming) {
-      bottomBarContent = Row(
+  Widget _header(Professional p) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.card(radius: 20),
+      child: Row(
         children: [
+          ProfessionalAvatar(professional: p, size: 76),
+          const SizedBox(width: 14),
           Expanded(
-            child: PrimaryButton(
-              text: 'Already booked',
-              backgroundColor: Colors.grey.shade400,
-              onPressed: null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (p.isFeatured) ...[const ProChip(label: 'Featured', icon: Icons.star_rounded, color: Color(0xFF0284C7)), const SizedBox(height: 6)],
+                Text(p.name, style: AppText.cardTitle.copyWith(fontSize: 18)),
+                const SizedBox(height: 2),
+                Text(p.subtitle, style: AppText.subtitle.copyWith(fontSize: 13.5)),
+                if (p.qualification != null) Text(p.qualification!, style: AppText.label),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _quickFacts(Professional p) {
+    final facts = <(IconData, String, String, VoidCallback?)>[
+      (Icons.workspace_premium_outlined, 'Experience', p.experienceLabel, null),
+      (Icons.star_rounded, 'Rating', '${p.ratingLabel}${p.reviews > 0 ? ' (${p.reviews})' : ''}', () => ReviewsBottomSheet.show(context, p)),
+      (Icons.payments_outlined, 'Fee', p.feeLabel, null),
+      (Icons.event_available_outlined, 'Available', p.daysLabel.isNotEmpty ? p.daysLabel : '—', null),
+    ];
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 2.4,
+      children: facts.map((f) {
+        return GestureDetector(
+          onTap: f.$4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: AppUi.card(radius: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppUi.iconTile, borderRadius: BorderRadius.circular(10)),
+                  child: Icon(f.$1, size: 18, color: AppUi.accent),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(f.$2, style: AppText.label),
+                      Text(f.$3, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.value.copyWith(fontSize: 13.5)),
+                    ],
+                  ),
+                ),
+                if (f.$4 != null) const Icon(Icons.chevron_right, size: 18, color: AppColors.borderDark),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _card(String title, IconData icon, List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.card(radius: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(icon, size: 20, color: AppUi.accent),
+            const SizedBox(width: 8),
+            Text(title, style: AppText.sectionTitle),
+          ]),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _bookingCard(Professional p, AsyncValue<List<AvailableDate>> availability, List<AvailableDate> dates, AvailableDate? selected) {
+    Widget body;
+    if (availability.isLoading && dates.isEmpty) {
+      body = const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator(color: AppUi.accent)));
+    } else if (availability.hasError && dates.isEmpty) {
+      body = Column(children: [
+        Text(availability.error is ApiException ? (availability.error as ApiException).message : 'Could not load slots.', style: AppText.subtitle),
+        TextButton(onPressed: () => ref.invalidate(professionalAvailabilityProvider(p.id)), child: const Text('Try again')),
+      ]);
+    } else if (dates.isEmpty) {
+      body = Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: const Color(0xFFFFFBEB), borderRadius: BorderRadius.circular(12)),
+        child: const Text('No open slots in the next 30 days. Please check back later.', style: AppText.subtitle),
       );
-    } else if (isPast) {
-      bottomBarContent = Row(
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 78,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: dates.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final d = dates[i];
+                final isSelected = d.isoDate == selected?.isoDate;
+                return GestureDetector(
+                  onTap: () => setState(() {
+                    _selectedDate = d.isoDate;
+                    _selectedTime = null;
+                  }),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 62,
+                    decoration: BoxDecoration(
+                      gradient: isSelected ? AppUi.accentGradient : null,
+                      color: isSelected ? null : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: isSelected ? Colors.transparent : const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(d.weekday, style: AppText.label.copyWith(color: isSelected ? Colors.white70 : AppColors.secondaryText)),
+                        Text('${d.date.day}', style: AppText.cardTitle.copyWith(fontSize: 18, color: isSelected ? Colors.white : AppColors.primaryText)),
+                        Text(DateFormat('MMM').format(d.date), style: AppText.label.copyWith(fontSize: 11, color: isSelected ? Colors.white70 : AppColors.secondaryText)),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (selected != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              '${selected.openCount} open ${selected.openCount == 1 ? 'slot' : 'slots'}'
+              '${selected.mineCount > 0 ? ' · ${selected.mineCount} booked by you' : ''}'
+              ' on ${DateFormat('EEEE, d MMM').format(selected.date)}',
+              style: AppText.label,
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: selected.slots.map((s) {
+                final isSelected = s.time == _selectedTime;
+                final enabled = s.isAvailable;
+                const mineColor = Color(0xFF059669);
+                return GestureDetector(
+                  onTap: enabled ? () => setState(() => _selectedTime = s.time) : null,
+                  child: Container(
+                    width: 96,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: isSelected ? AppUi.accentGradient : null,
+                      color: isSelected ? null : (s.isMine ? const Color(0xFFECFDF5) : (enabled ? Colors.white : const Color(0xFFF1F5F9))),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected
+                            ? Colors.transparent
+                            : (s.isMine ? const Color(0xFFA7F3D0) : (enabled ? const Color(0xFFBAE6FD) : Colors.transparent)),
+                      ),
+                    ),
+                    child: Column(children: [
+                      Text(s.time.replaceFirst(RegExp(r'^0'), ''),
+                          style: AppText.value.copyWith(
+                            fontSize: 13,
+                            color: isSelected ? Colors.white : (s.isMine ? mineColor : (enabled ? AppColors.primaryText : AppColors.borderDark)),
+                            decoration: s.status == 'past' ? TextDecoration.lineThrough : null,
+                          )),
+                      if (s.status == 'full') Text('Full', style: AppText.badge.copyWith(fontSize: 10, color: AppColors.error)),
+                      if (s.isMine) Text('Booked', style: AppText.badge.copyWith(fontSize: 10, color: mineColor)),
+                    ]),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      );
+    }
+
+    return _card('Book an appointment', Icons.event_rounded, [body]);
+  }
+
+  Widget _reviewsPreview(Professional p) {
+    final reviews = ref.watch(professionalReviewsProvider(p.id));
+    final list = reviews.value ?? const [];
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.card(radius: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.reviews_outlined, size: 20, color: AppUi.accent),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Reviews', style: AppText.sectionTitle)),
+            if (list.isNotEmpty) TextButton(onPressed: () => ReviewsBottomSheet.show(context, p), child: Text('See all (${list.length})')),
+          ]),
+          const SizedBox(height: 6),
+          if (reviews.isLoading && list.isEmpty)
+            const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator(color: AppUi.accent, strokeWidth: 2)))
+          else if (list.isEmpty)
+            const Text('No reviews yet.', style: AppText.subtitle)
+          else
+            ...list.take(2).map((r) => ReviewTile(review: r)),
+        ],
+      ),
+    );
+  }
+
+  Widget _bottomBar(Professional p, List<AvailableDate> dates) {
+    final a = widget.appointment;
+    Widget content;
+    if (a != null) {
+      content = Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(a.statusLabel, style: AppText.value.copyWith(color: a.statusColor)),
+                if (a.date != null) Text('${DateFormat('EEE, d MMM').format(a.date!)} · ${a.time}', style: AppText.label),
+              ],
+            ),
+          ),
+          if (a.canCancel) SizedBox(width: 150, child: SecondaryButton(text: 'Cancel', onPressed: () => _cancelAppointment(a))),
+          if (a.canReview)
+            SizedBox(
+              width: 160,
+              child: PrimaryButton(
+                text: 'Write review',
+                onPressed: () async {
+                  if (await ReviewSheet.show(context, p) && mounted) {
+                    CustomToast.showSuccess(context, 'Thanks for your review!');
+                    ref.invalidate(appointmentsProvider);
+                  }
+                },
+              ),
+            ),
+        ],
+      );
+    } else {
+      content = Row(
         children: [
           Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Status', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-              Text(ctx ?? 'PAST', style: const TextStyle(color: AppColors.primaryText, fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Consultation fee', style: AppText.label),
+              Text(p.feeLabel, style: AppText.cardTitle.copyWith(fontSize: 20)),
             ],
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: OutlinedButton(
-              onPressed: () => _showWriteReviewBottomSheet(context, ref, doc),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primaryBrand,
-                side: const BorderSide(color: AppColors.primaryBrand),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Text('Write a Review', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ],
-      );
-    } else {
-      bottomBarContent = Row(
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Consultation Fee', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-              Text('₹${doc.consultationFee}', style: const TextStyle(color: AppColors.primaryText, fontSize: 20, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(width: 24),
-          Expanded(
             child: PrimaryButton(
-              text: 'Book Appointment',
-              onPressed: selectedTime == null
-                  ? () {
-                      CustomToast.showError(context, 'Please select a time slot first');
-                    }
-                  : () {
-                      final bookingDate = selectedDate.isAtSameMomentAs(availableDates.first) 
-                          ? 'Today' 
-                          : DateFormat('MMM d, yyyy').format(selectedDate);
-                      _showBookingConfirmation(context, ref, doc, bookingDate, selectedTime!);
-                    },
+              text: _selectedTime == null ? 'Select a slot' : 'Book $_selectedTime',
+              onPressed: _selectedTime == null ? null : () => _book(p, dates),
             ),
           ),
         ],
       );
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.white,
-      appBar: AppBar(
-        backgroundColor: AppColors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: AppColors.primaryText),
-        title: Text(doc.profession == 'Doctor' ? 'Doctor Profile' : '${doc.profession} Profile', style: const TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.bold)),
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header and Stats
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Center(
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.backgroundLight,
-                          ),
-                          child: ClipOval(
-                            child: _buildProfessionalImage(doc.imageUrl),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(doc.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                        const SizedBox(height: 4),
-                        Text(doc.specialty, style: const TextStyle(fontSize: 16, color: AppColors.primaryBrand, fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 8),
-                        Text(doc.clinic, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildStatColumn('Experience', '${doc.experienceYears} Years'),
-                      GestureDetector(
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (ctx) => ReviewsBottomSheet(professional: doc),
-                          );
-                        },
-                        child: _buildStatColumn(
-                          'Rating', 
-                          '${doc.rating > doc.defaultRating ? doc.rating.toStringAsFixed(1) : doc.defaultRating.toStringAsFixed(1)} ★'
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (ctx) => ReviewsBottomSheet(professional: doc),
-                          );
-                        },
-                        child: _buildStatColumn('Reviews', '${doc.reviews}'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            
-            Container(height: 8, color: AppColors.backgroundLight),
-            
-            // About
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('About Professional', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 12),
-                  Text(
-                    doc.description != null && doc.description!.isNotEmpty 
-                        ? doc.description! 
-                        : 'No description provided.',
-                    style: const TextStyle(fontSize: 14, color: AppColors.secondaryText, height: 1.5),
-                  ),
-                ],
-              ),
-            ),
-            
-            Container(height: 8, color: AppColors.backgroundLight),
-            
-            // Availability
-            if (doc.availableDays.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Weekly Availability', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) {
-                        final isAvailable = doc.availableDays.contains(day);
-                        return Container(
-                          width: 40,
-                          height: 40,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isAvailable ? AppColors.primaryBrand.withOpacity(0.1) : AppColors.backgroundLight,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: isAvailable ? AppColors.primaryBrand : AppColors.border),
-                          ),
-                          child: Text(
-                            day.substring(0, 1),
-                            style: TextStyle(
-                              color: isAvailable ? AppColors.primaryBrand : AppColors.secondaryText,
-                              fontWeight: isAvailable ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-              Container(height: 8, color: AppColors.backgroundLight),
-            ],
-
-            // Select Date
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Select Date', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 75,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: availableDates.length,
-                      itemBuilder: (context, index) {
-                        final date = availableDates[index];
-                        final isSelected = date.isAtSameMomentAs(selectedDate);
-                        
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              selectedDate = date;
-                              selectedTime = null; // Reset time slot for new date
-                            });
-                            _fetchBookedSlots();
-                          },
-                          child: Container(
-                            width: 65,
-                            margin: const EdgeInsets.only(right: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected ? AppColors.primaryBrand : AppColors.backgroundLight,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: isSelected ? AppColors.primaryBrand : Colors.transparent),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  DateFormat('E').format(date),
-                                  style: TextStyle(
-                                    color: isSelected ? Colors.white : AppColors.secondaryText,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  date.day.toString(),
-                                  style: TextStyle(
-                                    color: isSelected ? Colors.white : AppColors.primaryText,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            Container(height: 8, color: AppColors.backgroundLight),
-
-            // Select Time Slot
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Select Time for ${selectedDate.isAtSameMomentAs(availableDates.first) ? 'Today' : DateFormat('MMM d').format(selectedDate)}', 
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)
-                  ),
-                  const SizedBox(height: 12),
-                  if (isLoadingSlots) const Center(child: CircularProgressIndicator())
-                  else Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: (doc.timeSlots.isNotEmpty ? doc.timeSlots : ['10:00 AM', '11:30 AM', '02:00 PM', '04:30 PM', '06:00 PM']).map((time) {
-                      final isSelected = time == selectedTime;
-                      final isPassed = _isTimeSlotPassed(time);
-                      final isBooked = bookedSlots.contains(time);
-                      final isDisabled = isPassed || isBooked;
-                      return GestureDetector(
-                        onTap: isDisabled ? null : () {
-                          setState(() {
-                            selectedTime = time;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isDisabled ? AppColors.backgroundLight : isSelected ? AppColors.primaryBrand : AppColors.white,
-                            border: Border.all(color: isDisabled ? AppColors.border : isSelected ? AppColors.primaryBrand : AppColors.borderDark),
-                            borderRadius: BorderRadius.circular(20), // Chips are usually rounded
-                          ),
-                          child: Text(
-                            time,
-                            style: TextStyle(
-                              color: isDisabled ? AppColors.secondaryText.withOpacity(0.5) : isSelected ? AppColors.white : AppColors.primaryBrand,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                              decoration: isPassed ? TextDecoration.lineThrough : null, // only strikethrough if passed, not if booked
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, -4))],
         ),
+        child: content,
       ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.white,
-          border: Border(top: BorderSide(color: AppColors.border)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: bottomBarContent,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatColumn(String label, String value) {
-    return Column(
-      children: [
-        Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-        const SizedBox(height: 4),
-        Text(value, style: const TextStyle(color: AppColors.primaryText, fontSize: 16, fontWeight: FontWeight.bold)),
-      ],
-    );
-  }
-
-  Widget _buildProfessionalImage(String? imageUrl) {
-    if (imageUrl == null || imageUrl.isEmpty) {
-      return const Icon(Icons.local_hospital, size: 50, color: AppColors.secondaryText);
-    }
-    if (imageUrl.startsWith('data:image')) {
-      final base64String = imageUrl.split(',').last;
-      return Image.memory(base64Decode(base64String), fit: BoxFit.cover, width: 100, height: 100);
-    } else {
-      return Image.network(imageUrl, fit: BoxFit.cover, width: 100, height: 100,
-          errorBuilder: (_, __, ___) => const Icon(Icons.local_hospital, size: 50, color: AppColors.secondaryText));
-    }
-  }
-
-  String _getRatingText(double r) {
-    if (r == 1.0) return 'Not good';
-    if (r == 2.0) return 'Fair';
-    if (r == 3.0) return 'Good';
-    if (r == 4.0) return 'Very good';
-    if (r == 5.0) return 'Best';
-    return '';
-  }
-
-  void _showWriteReviewBottomSheet(BuildContext context, WidgetRef ref, Professional professional) {
-    double rating = 0.0;
-    String comment = '';
-    bool isLoading = true;
-    bool hasFetched = false;
-    bool hasExistingReview = false;
-    TextEditingController commentController = TextEditingController();
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            
-            if (!hasFetched) {
-              hasFetched = true;
-              ref.read(professionalsRepositoryProvider).getMyReview(professional.id).then((review) {
-                if (mounted) {
-                  setState(() {
-                    if (review != null) {
-                      rating = review.rating;
-                      comment = review.comment ?? '';
-                      commentController.text = comment;
-                      hasExistingReview = true;
-                    }
-                    isLoading = false;
-                  });
-                }
-              }).catchError((_) {
-                if (mounted) setState(() { isLoading = false; });
-              });
-            }
-
-            if (isLoading) {
-              return Padding(
-                padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    SizedBox(height: 150),
-                    Center(child: CircularProgressIndicator()),
-                    SizedBox(height: 150),
-                  ],
-                ),
-              );
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(hasExistingReview ? 'Update Review' : 'Write a Review', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text('How was your appointment with ${professional.name}?', style: const TextStyle(color: AppColors.secondaryText)),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(5, (index) {
-                        return IconButton(
-                          icon: Icon(
-                            index < rating ? Icons.star_rounded : Icons.star_outline_rounded,
-                            color: Colors.amber,
-                            size: 40,
-                          ),
-                          onPressed: () => setState(() => rating = index + 1.0),
-                        );
-                      }),
-                    ),
-                  ),
-                  if (rating > 0)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(_getRatingText(rating), style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBrand, fontSize: 16)),
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: commentController,
-                    decoration: InputDecoration(
-                      hintText: 'Add a comment',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.all(16),
-                    ),
-                    maxLines: 3,
-                    onChanged: (val) => comment = val,
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryBrand,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () async {
-                        if (rating == 0.0) {
-                          CustomToast.showError(context, 'Please provide a star rating');
-                          return;
-                        }
-                        if (comment.trim().isEmpty) {
-                          CustomToast.showError(context, 'Please write a review comment');
-                          return;
-                        }
-                        
-                        try {
-                          final repo = ref.read(professionalsRepositoryProvider);
-                          await repo.submitReview(professional.id, rating, comment);
-                          Navigator.pop(context);
-                          CustomToast.showSuccess(context, hasExistingReview ? 'Review updated successfully' : 'Review submitted successfully');
-                        } catch (e) {
-                          CustomToast.showError(context, 'Failed to submit review');
-                        }
-                      },
-                      child: Text(hasExistingReview ? 'Update Review' : 'Submit Review', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            );
-          }
-        );
-      },
-    );
-  }
-
-  void _showBookingConfirmation(BuildContext context, WidgetRef ref, Professional doc, String date, String time) {
-    String mode = doc.consultationMode.isNotEmpty ? doc.consultationMode.first : 'In-Person';
-    final TextEditingController notesController = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Confirm Appointment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: AppColors.backgroundLight, borderRadius: BorderRadius.circular(12)),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Professional: ${doc.name}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text('Date: $date', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text('Time: $time', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text('Fee: ₹${doc.consultationFee}', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primaryBrand)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Consultation Mode', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: mode,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    ),
-                    items: (doc.consultationMode.isNotEmpty ? doc.consultationMode : ['In-Person', 'Online', 'Phone']).map((m) {
-                      return DropdownMenuItem(value: m, child: Text(m));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => mode = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Notes for Professional (Optional)', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryText)),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: notesController,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. Discussing career transition to AI...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.all(16),
-                    ),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryBrand,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        ref.read(appointmentsProvider.notifier).bookAppointment(doc, date, time, mode, notesController.text);
-                        Navigator.pop(ctx);
-                        CustomToast.showSuccess(context, 'Appointment request sent successfully!');
-                        Navigator.pop(context); // Go back to directory
-                      },
-                      child: const Text('Confirm Booking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }

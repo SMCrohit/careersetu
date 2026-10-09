@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'token_storage.dart';
 
 class ApiException implements Exception {
@@ -154,3 +155,5 @@ class ApiClient {
     }
   }
 }
+
+final apiClientProvider = Provider((ref) => ApiClient());

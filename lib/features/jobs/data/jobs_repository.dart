@@ -1,99 +1,78 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
-import '../domain/job_model.dart';
+import '../domain/job_application.dart';
 import '../domain/job_filter_state.dart';
+import '../domain/job_model.dart';
+
+// Kept here as well so existing imports of `apiClientProvider` from this file keep working.
+export '../../../core/api/api_client.dart' show apiClientProvider;
+
+class JobsPage {
+  final List<JobModel> jobs;
+  final int total;
+
+  const JobsPage(this.jobs, this.total);
+}
+
+class JobFilterOptions {
+  final List<String> cities;
+  final List<String> jobTypes;
+  final List<String> workModels;
+
+  const JobFilterOptions({this.cities = const [], this.jobTypes = const [], this.workModels = const []});
+}
 
 class JobsRepository {
   final ApiClient _apiClient;
 
   JobsRepository(this._apiClient);
 
-  Future<List<JobModel>> fetchJobs({
-    int page = 1, 
-    int limit = 10, 
-    String query = '', 
-    JobFilterState? filters,
-  }) async {
-    final response = await _apiClient.get('/jobs');
-    
-    final List<dynamic> jobsJson = response.data;
-    List<JobModel> allJobs = jobsJson.map((e) => JobModel.fromJson(e)).toList();
-    
-    // Apply search query locally (until backend supports query params)
-    if (query.isNotEmpty) {
-      final q = query.toLowerCase();
-      allJobs = allJobs.where((job) {
-        return job.title.toLowerCase().contains(q) || 
-               job.company.toLowerCase().contains(q) ||
-               job.location.toLowerCase().contains(q);
-      }).toList();
-    }
+  static const pageSize = 10;
 
-    // Apply local filters
-    if (filters != null) {
-      if (filters.type != null && filters.type!.isNotEmpty) {
-        allJobs = allJobs.where((job) => job.type == filters.type).toList();
-      }
-      if (filters.experience != null && filters.experience!.isNotEmpty) {
-        allJobs = allJobs.where((job) => job.experience == filters.experience).toList();
-      }
-      if (filters.profession != null && filters.profession!.isNotEmpty) {
-        allJobs = allJobs.where((job) => job.profession == filters.profession).toList();
-      }
-      if (filters.location != null && filters.location!.isNotEmpty) {
-        final locQuery = filters.location!.toLowerCase();
-        allJobs = allJobs.where((job) => job.location.toLowerCase().contains(locQuery)).toList();
-      }
-      if (filters.salary != null && filters.salary!.isNotEmpty) {
-        final parts = filters.salary!.split('-');
-        if (parts.length == 2) {
-          final filterMin = double.tryParse(parts[0]) ?? 0;
-          final filterMax = double.tryParse(parts[1]) ?? 5000000;
-          
-          allJobs = allJobs.where((job) {
-             final jobParts = job.salary.replaceAll(RegExp(r'[^0-9-]'), '').split('-');
-             double jobMin = 0;
-             double jobMax = 0;
-             if (jobParts.isNotEmpty && jobParts[0].isNotEmpty) {
-               jobMin = double.tryParse(jobParts[0]) ?? 0;
-               jobMax = jobParts.length > 1 && jobParts[1].isNotEmpty ? (double.tryParse(jobParts[1]) ?? jobMin) : jobMin;
-             }
-             return jobMin <= filterMax && jobMax >= filterMin;
-          }).toList();
-        }
-      }
-    }
-    
-    // Simulate pagination locally
-    final startIndex = (page - 1) * limit;
-    if (startIndex >= allJobs.length) {
-      return [];
-    }
-    
-    final endIndex = (startIndex + limit) > allJobs.length 
-        ? allJobs.length 
-        : (startIndex + limit);
-        
-    return allJobs.sublist(startIndex, endIndex);
+  Future<JobsPage> fetchJobs({int page = 1, String query = '', JobFilterState filters = const JobFilterState()}) async {
+    final response = await _apiClient.get('/jobs', queryParameters: {
+      'page': page,
+      'limit': pageSize,
+      if (query.trim().isNotEmpty) 'search': query.trim(),
+      ...filters.toQuery(),
+    });
+    final data = Map<String, dynamic>.from(response.data);
+    final jobs = (data['data'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => JobModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+    return JobsPage(jobs, (data['total'] as num?)?.toInt() ?? jobs.length);
   }
 
-  Future<List<String>> fetchJobLocations() async {
-    final response = await _apiClient.get('/jobs/locations');
-    final List<dynamic> data = response.data;
-    return data.map((e) => e.toString()).toList();
+  Future<JobModel> fetchJob(String id) async {
+    final response = await _apiClient.get('/jobs/$id');
+    return JobModel.fromJson(Map<String, dynamic>.from(response.data));
   }
 
-  Future<List<String>> fetchJobProfessions() async {
-    final response = await _apiClient.get('/jobs/professions');
-    final List<dynamic> data = response.data;
-    return data.map((e) => e.toString()).toList();
+  Future<JobFilterOptions> fetchFilterOptions() async {
+    final response = await _apiClient.get('/jobs/filters');
+    final data = Map<String, dynamic>.from(response.data);
+    List<String> list(String key) => (data[key] as List? ?? []).map((e) => e.toString()).toList();
+    return JobFilterOptions(cities: list('cities'), jobTypes: list('job_types'), workModels: list('work_models'));
+  }
+
+  Future<List<JobApplication>> fetchApplications() async {
+    final response = await _apiClient.get('/users/me/applications');
+    return (response.data as List? ?? [])
+        .whereType<Map>()
+        .map((e) => JobApplication.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  /// Throws [ApiException] with the server's message (e.g. already applied, cover letter required).
+  Future<JobApplication> apply(String jobId, {String? coverLetter, Map<String, String> screeningResponses = const {}}) async {
+    final response = await _apiClient.post('/users/me/applications', data: {
+      'job_id': jobId,
+      if (coverLetter != null && coverLetter.trim().isNotEmpty) 'cover_letter': coverLetter.trim(),
+      'screening_responses': screeningResponses,
+    });
+    return JobApplication.fromJson(Map<String, dynamic>.from(response.data));
   }
 }
 
-final apiClientProvider = Provider((ref) => ApiClient());
-
-final jobsRepositoryProvider = Provider((ref) {
-  final apiClient = ref.watch(apiClientProvider);
-  return JobsRepository(apiClient);
-});
-
+final jobsRepositoryProvider = Provider((ref) => JobsRepository(ref.watch(apiClientProvider)));

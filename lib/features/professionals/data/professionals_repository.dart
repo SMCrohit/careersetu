@@ -1,38 +1,112 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../domain/availability.dart';
+import '../domain/professional_filter_state.dart';
 import '../domain/professional_model.dart';
 import '../domain/professional_review_model.dart';
-import '../../jobs/data/jobs_repository.dart'; // To reuse apiClientProvider
+
+class ProfessionalsPage {
+  final List<Professional> items;
+  final int total;
+
+  const ProfessionalsPage(this.items, this.total);
+}
+
+class ProfessionalFilterOptions {
+  final List<String> professions;
+  final List<String> cities;
+  final List<String> languages;
+  final List<String> consultationModes;
+  final int feeMin;
+  final int feeMax;
+
+  const ProfessionalFilterOptions({
+    this.professions = const [],
+    this.cities = const [],
+    this.languages = const [],
+    this.consultationModes = const ['In-Person', 'Online', 'Phone'],
+    this.feeMin = 0,
+    this.feeMax = 5000,
+  });
+}
+
+/// 'doctor' (Health & Wellness) or 'non_doctor' (Professionals).
+enum ProfessionalGroup {
+  doctor('doctor'),
+  nonDoctor('non_doctor');
+
+  final String api;
+  const ProfessionalGroup(this.api);
+}
 
 class ProfessionalsRepository {
   final ApiClient _apiClient;
 
   ProfessionalsRepository(this._apiClient);
 
-  Future<List<Professional>> fetchProfessionals({int page = 1, int limit = 10, String query = '', String profession = 'All', String city = 'All'}) async {
-    final skip = (page - 1) * limit;
-    String url = '/professionals?skip=$skip&limit=$limit';
-    if (query.isNotEmpty) url += '&search=$query';
-    if (profession != 'All') url += '&profession=$profession';
-    if (city != 'All') url += '&location_city=$city';
+  static const pageSize = 10;
 
-    final response = await _apiClient.get(url);
-    final List<dynamic> data = response.data;
-    
-    return data.map((json) => Professional.fromJson(json)).toList();
+  Future<ProfessionalsPage> fetchProfessionals({
+    int page = 1,
+    int limit = pageSize,
+    String query = '',
+    ProfessionalFilterState filters = const ProfessionalFilterState(),
+    ProfessionalGroup? group,
+    bool featuredOnly = false,
+  }) async {
+    final response = await _apiClient.get('/professionals', queryParameters: {
+      'page': page,
+      'limit': limit,
+      if (query.trim().isNotEmpty) 'search': query.trim(),
+      if (group != null) 'group': group.api,
+      if (featuredOnly) 'featured': true,
+      ...filters.toQuery(),
+    });
+    final data = Map<String, dynamic>.from(response.data);
+    final items = (data['data'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Professional.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+    return ProfessionalsPage(items, (data['total'] as num?)?.toInt() ?? items.length);
+  }
+
+  Future<Professional> fetchProfessional(String id) async {
+    final response = await _apiClient.get('/professionals/$id');
+    return Professional.fromJson(Map<String, dynamic>.from(response.data));
+  }
+
+  Future<ProfessionalFilterOptions> fetchFilterOptions() async {
+    final response = await _apiClient.get('/professionals/filters');
+    final d = Map<String, dynamic>.from(response.data);
+    List<String> list(String key) => (d[key] as List? ?? []).map((e) => e.toString()).toList();
+    final modes = list('consultation_modes');
+    return ProfessionalFilterOptions(
+      professions: list('professions'),
+      cities: list('cities'),
+      languages: list('languages'),
+      consultationModes: modes.isNotEmpty ? modes : const ['In-Person', 'Online', 'Phone'],
+      feeMin: (d['fee_min'] as num?)?.floor() ?? 0,
+      feeMax: (d['fee_max'] as num?)?.ceil() ?? 5000,
+    );
+  }
+
+  /// Dates with open slots in the next 30 days.
+  Future<List<AvailableDate>> fetchAvailability(String id) async {
+    final response = await _apiClient.get('/professionals/$id/availability');
+    final dates = (Map<String, dynamic>.from(response.data)['dates'] as List? ?? []);
+    return dates.whereType<Map>().map((e) => AvailableDate.fromJson(Map<String, dynamic>.from(e))).whereType<AvailableDate>().toList();
   }
 
   Future<List<ProfessionalReview>> fetchReviews(String professionalId) async {
     final response = await _apiClient.get('/professionals/$professionalId/reviews');
-    final List<dynamic> data = response.data;
-    return data.map((json) => ProfessionalReview.fromJson(json)).toList();
+    return (response.data as List).map((json) => ProfessionalReview.fromJson(json)).toList();
   }
 
   Future<ProfessionalReview?> getMyReview(String professionalId) async {
     try {
       final response = await _apiClient.get('/users/me/professionals/$professionalId/review');
       return ProfessionalReview.fromJson(response.data);
-    } catch (e) {
+    } catch (_) {
       return null;
     }
   }
@@ -40,25 +114,12 @@ class ProfessionalsRepository {
   Future<ProfessionalReview> submitReview(String professionalId, double rating, String comment) async {
     final response = await _apiClient.post(
       '/users/me/professionals/$professionalId/review',
-      data: {
-        'rating': rating,
-        'comment': comment,
-      },
+      data: {'rating': rating, 'comment': comment},
     );
     return ProfessionalReview.fromJson(response.data);
-  }
-
-  Future<List<String>> getBookedSlots(String professionalId, String date) async {
-    try {
-      final response = await _apiClient.get('/professionals/$professionalId/booked-slots?date=$date');
-      return (response.data as List).map((e) => e.toString()).toList();
-    } catch (e) {
-      return [];
-    }
   }
 }
 
 final professionalsRepositoryProvider = Provider<ProfessionalsRepository>((ref) {
-  final apiClient = ref.watch(apiClientProvider);
-  return ProfessionalsRepository(apiClient);
+  return ProfessionalsRepository(ref.watch(apiClientProvider));
 });

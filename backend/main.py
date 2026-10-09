@@ -3,6 +3,7 @@ from typing import Optional
 import io
 import re
 import uuid
+from collections import defaultdict
 import openpyxl
 from pypdf import PdfReader
 from fastapi.middleware.cors import CORSMiddleware
@@ -248,6 +249,54 @@ def get_all_companies(db: Session = Depends(get_db)):
     companies = db.query(models.Job.company_name).distinct().all()
     return [c[0] for c in companies if c[0]]
 
+def _application_resume(app: models.JobApplication):
+    """The resume for an application: the copy saved when applying, else the applicant's current profile resume."""
+    snapshot = app.resume_snapshot if isinstance(app.resume_snapshot, dict) else None
+    if snapshot and snapshot.get("data"):
+        return snapshot, "submitted"
+    profile = app.student_profile
+    current = profile.resume_data if profile and isinstance(profile.resume_data, dict) else None
+    if current and current.get("data"):
+        return current, "profile"
+    return None, None
+
+def _application_resume_info(app: models.JobApplication) -> dict:
+    resume, source = _application_resume(app)
+    return {
+        "has_resume": resume is not None,
+        "resume_filename": (resume.get("filename") or "resume.pdf") if resume else None,
+        "resume_source": source,
+    }
+
+@app.get("/api/job-applications/{app_id}/resume")
+def download_application_resume(app_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    import base64
+    from fastapi.responses import Response
+    try:
+        app_uuid = uuid.UUID(app_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Application not found")
+    application = db.query(models.JobApplication).filter(models.JobApplication.id == app_uuid).first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    resume, source = _application_resume(application)
+    if not resume:
+        raise HTTPException(status_code=404, detail="No resume attached to this application")
+    try:
+        pdf_bytes = base64.b64decode(resume["data"])
+    except Exception:
+        raise HTTPException(status_code=422, detail="The stored resume file is corrupted")
+    filename = re.sub(r'[^A-Za-z0-9._ -]', '_', resume.get("filename") or "resume.pdf")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Resume-Source": source,
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Resume-Source",
+        },
+    )
+
 @app.get("/api/job-applications")
 def get_all_job_applications(
     status: str = None,
@@ -327,6 +376,7 @@ def get_all_job_applications(
             "status": app.status,
             "applied_datetime": app.created_datetime.isoformat() if hasattr(app, 'created_datetime') and app.created_datetime else None,
             "resume_snapshot_url": app.resume_snapshot_url,
+            **_application_resume_info(app),
             "cover_letter": app.cover_letter,
             "screening_responses": app.screening_responses,
             "ai_match_score": app.ai_match_score,
@@ -355,72 +405,98 @@ def update_job_application(app_id: str, data: dict, db: Session = Depends(get_db
     auth.log_admin_action(db, admin, "UPDATE", "JobApplication", app_id, {"status": app.status})
     return {"status": "success"}
 
+# --- Student job feed ---
+
+EXPERIENCE_RANGES = {
+    "Fresher (0 yrs)": (None, 0),
+    "1-3 Years": (0, 3),
+    "3-5 Years": (3, 5),
+    "5+ Years": (5, None),
+}
+
+def _published_jobs(db: Session):
+    return db.query(models.Job).filter(models.Job.is_active == True, models.Job.status == "published")
+
+def _applied_job_ids(db: Session, user) -> set:
+    if not user or not user.student_profile:
+        return set()
+    rows = db.query(models.JobApplication.job_id).filter(
+        models.JobApplication.student_profile_id == user.student_profile.id,
+        models.JobApplication.is_active == True,
+    ).all()
+    return {r[0] for r in rows}
+
+def _jobs_out(db: Session, jobs: list, user) -> list:
+    """Serializes jobs with applicants_count and has_applied for the current user."""
+    ids = [j.id for j in jobs]
+    counts = dict(
+        db.query(models.JobApplication.job_id, func.count(models.JobApplication.id))
+        .filter(models.JobApplication.job_id.in_(ids))
+        .group_by(models.JobApplication.job_id).all()
+    ) if ids else {}
+    applied = _applied_job_ids(db, user)
+    out = []
+    for j in jobs:
+        d = {c.name: getattr(j, c.name) for c in j.__table__.columns}
+        d["applicants_count"] = counts.get(j.id, 0)
+        d["has_applied"] = j.id in applied
+        out.append(d)
+    return out
+
 @app.get("/api/jobs")
 def get_jobs(
-    status: str = None, 
-    type: str = None, 
-    city: str = None, 
-    min_salary: int = None, 
-    max_salary: int = None,
-    experience: str = None,
-    application_routing_mode: str = None,
-    created_start: str = None,
-    created_end: str = None,
-    db: Session = Depends(get_db)
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    type: Optional[str] = None,
+    work_model: Optional[str] = None,
+    city: Optional[str] = None,
+    experience: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    posted_within_days: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional),
 ):
-    query = db.query(models.Job).filter(models.Job.is_active == True)
-    
-    if application_routing_mode:
-        query = query.filter(models.Job.application_routing_mode == application_routing_mode)
-        
-    if created_start:
-        from datetime import datetime
-        try:
-            start_dt = datetime.strptime(created_start, "%Y-%m-%d")
-            query = query.filter(models.Job.created_datetime >= start_dt)
-        except ValueError:
-            pass
-            
-    if created_end:
-        from datetime import datetime
-        try:
-            end_dt = datetime.strptime(created_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-            query = query.filter(models.Job.created_datetime <= end_dt)
-        except ValueError:
-            pass
-            
-    if status:
-        query = query.filter(models.Job.status == status)
+    """Published jobs for students, with search, filters and pagination."""
+    from sqlalchemy import cast, String
+    query = _published_jobs(db)
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            models.Job.title.ilike(term)
+            | models.Job.company_name.ilike(term)
+            | cast(models.Job.location, String).ilike(term)
+            | cast(models.Job.skills_required, String).ilike(term)
+        )
     if type:
         query = query.filter(models.Job.job_type == type)
+    if work_model:
+        query = query.filter(models.Job.work_model == work_model)
+    if city:
+        query = query.filter(cast(models.Job.location, String).ilike(f"%{city}%"))
+    if experience in EXPERIENCE_RANGES:
+        low, high = EXPERIENCE_RANGES[experience]
+        if low is None:
+            query = query.filter(func.coalesce(models.Job.experience_required_years, 0) == 0)
+        else:
+            query = query.filter(models.Job.experience_required_years > low)
+            if high is not None:
+                query = query.filter(models.Job.experience_required_years <= high)
     if min_salary is not None:
         query = query.filter(models.Job.salary_max >= min_salary)
     if max_salary is not None:
         query = query.filter(models.Job.salary_min <= max_salary)
-    
-    from sqlalchemy import cast, String
-    if city:
-        query = query.filter(cast(models.Job.location, String).ilike(f"%{city}%"))
-        
-    if experience:
-        if experience == 'Fresher (0 yrs)':
-            query = query.filter(models.Job.experience_required_years == 0)
-        elif experience == '1-3 Years':
-            query = query.filter(models.Job.experience_required_years <= 3)
-        elif experience == '3-5 Years':
-            query = query.filter(models.Job.experience_required_years >= 3)
-        elif experience == '5+ Years':
-            query = query.filter(models.Job.experience_required_years >= 5)
-            
-    jobs = query.order_by(models.Job.created_datetime.desc()).all()
-    
-    results = []
-    for j in jobs:
-        j_dict = {c.name: getattr(j, c.name) for c in j.__table__.columns}
-        j_dict['applicants_count'] = db.query(models.JobApplication).filter(models.JobApplication.job_id == j.id).count()
-        results.append(j_dict)
-        
-    return results
+    if posted_within_days:
+        query = query.filter(models.Job.created_datetime >= datetime.utcnow() - timedelta(days=posted_within_days))
+
+    page = max(page, 1)
+    limit = min(max(limit, 1), 50)
+    total = query.count()
+    jobs = query.order_by(models.Job.is_featured.desc(), models.Job.created_datetime.desc()) \
+                .offset((page - 1) * limit).limit(limit).all()
+    return {"data": _jobs_out(db, jobs, current_user), "total": total, "page": page, "limit": limit}
 
 @app.get("/api/admin/jobs")
 def get_admin_jobs(
@@ -445,7 +521,7 @@ def get_admin_jobs(
         from sqlalchemy import cast, String
         query = query.filter(
             models.Job.title.ilike(f"%{search}%") | 
-            models.Job.company.ilike(f"%{search}%") |
+            models.Job.company_name.ilike(f"%{search}%") |
             cast(models.Job.location, String).ilike(f"%{search}%")
         )
         
@@ -518,6 +594,34 @@ def get_job_locations(db: Session = Depends(get_db)):
             
     return sorted(list(unique_cities))
 
+@app.get("/api/jobs/filters")
+def get_job_filter_options(db: Session = Depends(get_db)):
+    """Values for the app's job filters, taken from published jobs."""
+    rows = _published_jobs(db).with_entities(models.Job.location, models.Job.job_type, models.Job.work_model).all()
+    cities, types, models_ = set(), set(), set()
+    for loc, job_type, work_model in rows:
+        if isinstance(loc, dict) and loc.get("city"):
+            cities.add(str(loc["city"]).strip())
+        elif isinstance(loc, str) and loc.strip():
+            cities.add(loc.strip())
+        if job_type:
+            types.add(job_type)
+        if work_model:
+            models_.add(work_model)
+    return {"cities": sorted(cities), "job_types": sorted(types), "work_models": sorted(models_)}
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str, db: Session = Depends(get_db),
+            current_user: Optional[models.User] = Depends(auth.get_current_user_optional)):
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = _published_jobs(db).filter(models.Job.id == job_uuid).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="This job is no longer available")
+    return _jobs_out(db, [job], current_user)[0]
+
 
 
 @app.post("/api/jobs", response_model=schemas.Job)
@@ -557,30 +661,108 @@ def update_job(job_id: str, job_update: schemas.JobBase, db: Session = Depends(g
 # Tests CRUD
 from typing import Optional
 
-@app.get("/api/tests", response_model=list[schemas.TestModel])
+# --- Student tests ---
+
+def _user_attempts_query(db: Session, user: models.User):
+    """Attempts by this user, matched on user_id or their student profile."""
+    conds = [models.TestAttempt.user_id == user.id]
+    if user.student_profile:
+        conds.append(models.TestAttempt.student_profile_id == user.student_profile.id)
+    return db.query(models.TestAttempt).filter(or_(*conds), models.TestAttempt.is_active == True)
+
+def _live_tests_query(db: Session):
+    """Published tests inside their schedule window."""
+    now = datetime.utcnow()
+    return db.query(models.Test).filter(
+        models.Test.is_active == True,
+        models.Test.status == "published",
+        or_(models.Test.scheduled_start_at == None, models.Test.scheduled_start_at <= now),
+        or_(models.Test.scheduled_end_at == None, models.Test.scheduled_end_at >= now),
+    )
+
+def _attempt_percentage(a: models.TestAttempt) -> float:
+    if a.percentage is not None:
+        return round(a.percentage, 1)
+    return round((a.total_score or 0) / a.max_score * 100, 1) if a.max_score else 0.0
+
+def _test_summary(test: models.Test, attempts: list) -> dict:
+    import test_engine
+    questions = test_engine.ordered_questions(test)
+    used = len(attempts)
+    best = max(attempts, key=_attempt_percentage) if attempts else None
+    latest = max(attempts, key=lambda x: x.completed_at or x.created_datetime) if attempts else None
+    return {
+        "id": test.id, "title": test.title, "description": test.description, "tag": test.tag,
+        "category": test.category, "test_type": test.test_type, "difficulty": test.difficulty,
+        "provider_name": test.provider_name, "provider_logo_url": test.provider_logo_url,
+        "duration_mins": test.duration_mins, "test_mode": test.test_mode,
+        "question_count": len(questions), "total_marks": sum(float(q.marks or 1) for q in questions),
+        "pass_percentage": test.pass_percentage, "negative_marking": test.negative_marking,
+        "max_discount_percentage": test.max_discount_percentage or 0,
+        "instructions": test.instructions, "created_datetime": test.created_datetime,
+        "scheduled_end_at": test.scheduled_end_at,
+        "attempts_used": used,
+        "attempts_left": None if not test.max_attempts else max(test.max_attempts - used, 0),
+        "best_attempt": {
+            "id": best.id, "total_score": best.total_score, "max_score": best.max_score,
+            "percentage": _attempt_percentage(best), "is_passed": best.is_passed,
+            "completed_at": best.completed_at,
+        } if best else None,
+        "last_attempted_at": (latest.completed_at or latest.created_datetime) if latest else None,
+    }
+
+@app.get("/api/tests")
 def get_tests(
-    request: Request,
-    status: Optional[str] = "all", 
-    skip: int = 0, 
-    limit: int = 20, 
+    status: Optional[str] = "available",
+    page: int = 1,
+    limit: int = 20,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional),
 ):
-    query = db.query(models.Test).filter(models.Test.is_active == True)
-    
-    if status != "all":
-        if not current_user:
-            raise HTTPException(status_code=401, detail="Authentication required to filter tests by status")
-        attempted_test_ids = db.query(models.TestAttempt.test_id).filter(
-            models.TestAttempt.user_id == current_user.id
-        ).subquery()
-        
-        if status == "available":
-            query = query.filter(~models.Test.id.in_(attempted_test_ids))
-        elif status == "attempted":
-            query = query.filter(models.Test.id.in_(attempted_test_ids))
-            
-    return query.order_by(models.Test.created_datetime.desc()).offset(skip).limit(limit).all()
+    """Student test list. available = live tests not yet attempted; attempted = tests the user has taken."""
+    if status == "attempted" and not current_user:
+        raise HTTPException(status_code=401, detail="Please log in to see your tests.")
+
+    by_test = defaultdict(list)
+    if current_user:
+        for attempt in _user_attempts_query(db, current_user).all():
+            by_test[attempt.test_id].append(attempt)
+
+    if status == "attempted":
+        tests = db.query(models.Test).filter(models.Test.id.in_(list(by_test.keys())), models.Test.is_active == True).all()
+        tests.sort(key=lambda t: max((a.completed_at or a.created_datetime) for a in by_test[t.id]), reverse=True)
+    else:
+        tests = [t for t in _live_tests_query(db).order_by(models.Test.created_datetime.desc()).all()
+                 if t.id not in by_test and any(q.is_active for q in t.questions)]
+
+    page, limit = max(page, 1), min(max(limit, 1), 50)
+    window = tests[(page - 1) * limit: page * limit]
+    return {"data": [_test_summary(t, by_test.get(t.id, [])) for t in window], "total": len(tests)}
+
+@app.post("/api/tests/{test_id}/start")
+def start_test(test_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Questions for taking a test, without answers."""
+    import test_engine
+    try:
+        test_uuid = uuid.UUID(test_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Test not found")
+    test = _live_tests_query(db).filter(models.Test.id == test_uuid).first()
+    if not test:
+        raise HTTPException(status_code=404, detail="This test is no longer available.")
+    used = _user_attempts_query(db, current_user).filter(models.TestAttempt.test_id == test.id).count()
+    if test.max_attempts and used >= test.max_attempts:
+        raise HTTPException(status_code=403, detail="You've used all attempts for this test.")
+    questions = test_engine.student_questions(test)
+    if not questions:
+        raise HTTPException(status_code=400, detail="This test has no questions yet.")
+    return {
+        **_test_summary(test, []),
+        "attempts_used": used,
+        "is_retake": used > 0,
+        "default_per_question_seconds": test.default_per_question_seconds or 60,
+        "questions": questions,
+    }
 
 @app.get("/api/admin/tests")
 def get_admin_tests(
@@ -830,47 +1012,144 @@ async def upload_questions(test_id: str, file: UploadFile = File(...), admin: st
     return {"valid": valid_questions, "invalid": invalid_questions}
 
 # Doctors CRUD
-@app.get("/api/professionals", response_model=list[schemas.Professional])
-def get_professionals(skip: int = 0, limit: int = 50, profession: str = None, location_city: str = None, search: str = None, db: Session = Depends(get_db)):
-    query = db.query(
-        models.Professional,
-        func.count(models.ProfessionalReview.id).label("reviews_count"),
-        func.avg(models.ProfessionalReview.rating).label("avg_rating")
-    ).outerjoin(
-        models.ProfessionalReview, 
-        models.ProfessionalReview.professional_id == models.Professional.id
-    ).filter(
-        models.Professional.is_active == True
-    )
+# --- Professionals (student) ---
 
+EXPERIENCE_BANDS = {"0-5": (0, 5), "5-10": (5, 10), "10+": (10, None)}
+
+def _rating_subquery(db: Session):
+    return db.query(
+        models.ProfessionalReview.professional_id.label("pid"),
+        func.count(models.ProfessionalReview.id).label("reviews"),
+        func.avg(models.ProfessionalReview.rating).label("avg_rating"),
+    ).filter(models.ProfessionalReview.is_active == True).group_by(models.ProfessionalReview.professional_id).subquery()
+
+def _professional_out(db: Session, p: models.Professional, reviews: int, avg_rating, with_next: bool = True) -> dict:
+    import booking
+    d = {c.name: getattr(p, c.name) for c in p.__table__.columns}
+    d["consultation_fee"] = float(p.consultation_fee or 0)
+    d["reviews"] = int(reviews or 0)
+    d["rating"] = round(float(avg_rating), 1) if avg_rating is not None else float(p.default_rating or 0)
+    d["time_slots"] = [booking.format_time(t) for t in booking.slot_times(p)]
+    d["available_days"] = [day for day in booking.WEEKDAYS if day in booking.available_weekdays(p)]
+    if with_next:
+        d["next_available"] = booking.next_available(db, models, p)
+    return d
+
+@app.get("/api/professionals")
+def get_professionals(
+    page: int = 1,
+    limit: int = 10,
+    search: Optional[str] = None,
+    profession: Optional[str] = None,
+    group: Optional[str] = None,
+    city: Optional[str] = None,
+    location_city: Optional[str] = None,
+    consultation_mode: Optional[str] = None,
+    min_fee: Optional[float] = None,
+    max_fee: Optional[float] = None,
+    experience: Optional[str] = None,
+    language: Optional[str] = None,
+    available_day: Optional[str] = None,
+    min_rating: Optional[float] = None,
+    featured: Optional[bool] = None,
+    skip: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Active professionals for students, with filters. group = doctor | non_doctor."""
+    import booking
+    from sqlalchemy import cast, String
+    ratings = _rating_subquery(db)
+    rating_expr = func.coalesce(ratings.c.avg_rating, models.Professional.default_rating, 0)
+    query = db.query(models.Professional, ratings.c.reviews, ratings.c.avg_rating) \
+        .outerjoin(ratings, ratings.c.pid == models.Professional.id) \
+        .filter(models.Professional.is_active == True)
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(or_(
+            models.Professional.name.ilike(term), models.Professional.specialty.ilike(term),
+            models.Professional.clinic.ilike(term), models.Professional.qualification.ilike(term),
+            models.Professional.profession.ilike(term),
+        ))
     if profession and profession != "All":
         query = query.filter(models.Professional.profession == profession)
-    if location_city and location_city != "All":
-        query = query.filter(models.Professional.location_city == location_city)
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                models.Professional.name.ilike(search_term),
-                models.Professional.specialty.ilike(search_term),
-                models.Professional.clinic.ilike(search_term)
-            )
-        )
+    if group == "doctor":
+        query = query.filter(func.lower(models.Professional.profession) == "doctor")
+    elif group == "non_doctor":
+        query = query.filter(func.lower(func.coalesce(models.Professional.profession, "")) != "doctor")
+    city = city or location_city
+    if city and city != "All":
+        query = query.filter(models.Professional.location_city == city)
+    if consultation_mode:
+        query = query.filter(cast(models.Professional.consultation_mode, String).ilike(f'%"{consultation_mode}"%'))
+    if language:
+        query = query.filter(cast(models.Professional.languages_spoken, String).ilike(f'%"{language}"%'))
+    if available_day:
+        day = booking.normalize_day(available_day)
+        if day:
+            query = query.filter(cast(models.Professional.available_days, String).ilike(f"%{day}%"))
+    if min_fee is not None:
+        query = query.filter(models.Professional.consultation_fee >= min_fee)
+    if max_fee is not None:
+        query = query.filter(models.Professional.consultation_fee <= max_fee)
+    if experience in EXPERIENCE_BANDS:
+        low, high = EXPERIENCE_BANDS[experience]
+        years = func.coalesce(models.Professional.years_experience_numeric, 0)
+        query = query.filter(years >= low)
+        if high is not None:
+            query = query.filter(years < high)
+    if min_rating:
+        query = query.filter(rating_expr >= min_rating)
+    if featured:
+        query = query.filter(models.Professional.is_featured == True)
 
-    results = query.group_by(
-        models.Professional.id
-    ).order_by(
-        models.Professional.is_featured.desc(),
-        models.Professional.name.asc()
-    ).offset(skip).limit(limit).all()
-    
-    professionals = []
-    for prof, reviews_count, avg_rating in results:
-        prof.reviews = reviews_count or 0
-        prof.rating = float(avg_rating) if avg_rating is not None else prof.default_rating
-        professionals.append(prof)
-        
-    return professionals
+    total = query.count()
+    limit = min(max(limit, 1), 50)
+    offset = skip if skip is not None else (max(page, 1) - 1) * limit
+    rows = query.order_by(models.Professional.is_featured.desc(), rating_expr.desc(), models.Professional.name.asc()) \
+        .offset(offset).limit(limit).all()
+    return {"data": [_professional_out(db, p, r, avg) for p, r, avg in rows], "total": total}
+
+@app.get("/api/professionals/filters")
+def get_professional_filter_options(db: Session = Depends(get_db)):
+    pros = db.query(models.Professional).filter(models.Professional.is_active == True).all()
+    def values(attr):
+        out = set()
+        for p in pros:
+            v = getattr(p, attr)
+            for item in (v if isinstance(v, list) else [v]):
+                if item and str(item).strip():
+                    out.add(str(item).strip())
+        return sorted(out)
+    fees = [float(p.consultation_fee) for p in pros if p.consultation_fee is not None]
+    return {
+        "professions": values("profession"),
+        "cities": values("location_city"),
+        "languages": values("languages_spoken"),
+        "consultation_modes": values("consultation_mode"),
+        "fee_min": min(fees) if fees else 0,
+        "fee_max": max(fees) if fees else 0,
+    }
+
+def _get_active_professional(db: Session, professional_id: str) -> models.Professional:
+    try:
+        pid = uuid.UUID(professional_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Professional not found")
+    p = db.query(models.Professional).filter(models.Professional.id == pid, models.Professional.is_active == True).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="This professional is no longer available.")
+    return p
+
+@app.get("/api/professionals/{professional_id}/availability")
+def get_professional_availability(professional_id: str, days: int = 30, db: Session = Depends(get_db),
+                                  current_user: Optional[models.User] = Depends(auth.get_current_user_optional)):
+    """Bookable dates and slots for the next `days` days. Slot status: available, full, past,
+    or booked (already held by the logged-in user)."""
+    import booking
+    p = _get_active_professional(db, professional_id)
+    user_id = current_user.id if current_user else None
+    return {"dates": booking.availability(db, models, p, days, user_id=user_id), "timezone": booking.TIMEZONE}
 
 @app.get("/api/admin/professionals")
 def get_admin_professionals(
@@ -920,6 +1199,13 @@ def get_admin_professionals(
         "pages": math.ceil(total / limit) if limit > 0 else 0
     }
 
+@app.get("/api/professionals/{professional_id}")
+def get_professional(professional_id: str, db: Session = Depends(get_db)):
+    p = _get_active_professional(db, professional_id)
+    ratings = _rating_subquery(db)
+    row = db.query(ratings.c.reviews, ratings.c.avg_rating).filter(ratings.c.pid == p.id).first()
+    return _professional_out(db, p, row[0] if row else 0, row[1] if row else None)
+
 @app.post("/api/professionals", response_model=schemas.Professional)
 def create_professional(professional: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     db_professional = models.Professional(**professional.model_dump())
@@ -955,14 +1241,16 @@ def update_professional(professional_id: str, professional_update: schemas.Profe
 
 @app.get("/api/professionals/{professional_id}/booked-slots", response_model=list[str])
 def get_professional_booked_slots(professional_id: str, date: str, db: Session = Depends(get_db)):
-    appointments = db.query(models.ProfessionalAppointment).filter(
-        models.ProfessionalAppointment.professional_id == professional_id,
-        models.ProfessionalAppointment.appointment_date == date,
-        models.ProfessionalAppointment.status != "cancelled",
-        models.ProfessionalAppointment.is_active == True
-    ).all()
-    
-    return [appt.appointment_time.strftime("%I:%M %p") for appt in appointments]
+    """Kept for older app builds; new builds use /availability. Returns slots that are full."""
+    import booking
+    p = _get_active_professional(db, professional_id)
+    try:
+        day = booking.parse_date(date)
+    except ValueError:
+        return []
+    capacity = max(p.max_bookings_per_slot or 1, 1)
+    counts = booking.booking_counts(db, models, p.id, day, day)
+    return [booking.format_time(t) for (d, t), n in sorted(counts.items()) if n >= capacity]
 
 # Professional Reviews
 @app.get("/api/professionals/{professional_id}/reviews", response_model=list[schemas.ProfessionalReview])
@@ -1266,7 +1554,8 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
     job_apps_enriched = []
     for app in job_apps:
         job = db.query(models.Job).filter(models.Job.id == app.job_id).first()
-        app_dict = jsonable_encoder(app)
+        app_dict = jsonable_encoder(app, exclude={"resume_snapshot"})
+        app_dict.update(_application_resume_info(app))
         app_dict['job'] = jsonable_encoder(job) if job else None
         job_apps_enriched.append(app_dict)
         
@@ -1364,157 +1653,277 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
     return current_user
 
 # --- User Appointments ---
-@app.get("/api/users/me/appointments", response_model=list[schemas.ProfessionalAppointment])
-def get_my_appointments(skip: int = 0, limit: int = 50, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    appointments = db.query(models.ProfessionalAppointment).filter(models.ProfessionalAppointment.user_id == current_user.id).order_by(models.ProfessionalAppointment.appointment_date.desc()).offset(skip).limit(limit).all()
-    for appt in appointments:
-        if appt.professional:
-            reviews_query = db.query(models.ProfessionalReview).filter(
-                models.ProfessionalReview.professional_id == appt.professional.id,
-                models.ProfessionalReview.is_active == True
-            )
-            count = reviews_query.count()
-            if count > 0:
-                avg = db.query(func.avg(models.ProfessionalReview.rating)).filter(
-                    models.ProfessionalReview.professional_id == appt.professional.id,
-                    models.ProfessionalReview.is_active == True
-                ).scalar()
-                appt.professional.reviews = count
-                appt.professional.rating = float(avg)
-            else:
-                appt.professional.reviews = 0
-                appt.professional.rating = appt.professional.default_rating
-    return appointments
+def _appointment_out(db: Session, a: models.ProfessionalAppointment, reviewed: set) -> dict:
+    import booking
+    shown = booking.display_status(a)
+    prof = None
+    if a.professional:
+        ratings = _rating_subquery(db)
+        row = db.query(ratings.c.reviews, ratings.c.avg_rating).filter(ratings.c.pid == a.professional.id).first()
+        prof = _professional_out(db, a.professional, row[0] if row else 0, row[1] if row else None, with_next=False)
+    return {
+        "id": a.id,
+        "professional_id": a.professional_id,
+        "professional": prof,
+        "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
+        "appointment_time": booking.format_time(a.appointment_time) if a.appointment_time else None,
+        "status": a.status,
+        "display_status": shown,
+        "is_upcoming": shown in ("pending", "confirmed"),
+        "can_cancel": shown in ("pending", "confirmed"),
+        "can_review": shown in ("completed", "missed") and a.professional_id not in reviewed,
+        "consultation_mode": a.consultation_mode,
+        "notes_by_student": a.notes_by_student,
+        "cancellation_reason": a.cancellation_reason,
+        "cancelled_by": a.cancelled_by,
+        "created_datetime": a.created_datetime,
+    }
 
-@app.post("/api/users/me/appointments", response_model=schemas.ProfessionalAppointment)
+@app.get("/api/users/me/appointments")
+def get_my_appointments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    import booking
+    appointments = db.query(models.ProfessionalAppointment).filter(
+        models.ProfessionalAppointment.user_id == current_user.id,
+        models.ProfessionalAppointment.is_active == True,
+    ).all()
+    reviewed = {r[0] for r in db.query(models.ProfessionalReview.professional_id).filter(
+        models.ProfessionalReview.user_id == current_user.id, models.ProfessionalReview.is_active == True).all()}
+
+    def key(a):
+        when = datetime.combine(a.appointment_date or date.min, a.appointment_time or datetime.min.time())
+        # Upcoming first (soonest first), then the rest (most recent first).
+        return (0, when) if booking.is_upcoming(a) else (1, -when.timestamp() if a.appointment_date else 0)
+    appointments.sort(key=key)
+    return [_appointment_out(db, a, reviewed) for a in appointments[skip: skip + limit]]
+
+@app.post("/api/users/me/appointments")
 def create_appointment(app_req: schemas.ProfessionalAppointmentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    if app_req.appointment_date == "Today":
-        now = datetime.now()
-        try:
-            time_obj = datetime.strptime(app_req.appointment_time, "%I:%M %p")
-            slot_datetime = now.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
-            if slot_datetime < now:
-                raise HTTPException(status_code=400, detail="Cannot book a past time slot for today.")
-        except ValueError:
-            pass
-            
-    db_appointment = models.ProfessionalAppointment(**app_req.model_dump(), user_id=current_user.id)
-    db.add(db_appointment)
+    """Books an available slot. Rejects unavailable days, unknown slots, past times and full slots."""
+    import booking
+    professional = _get_active_professional(db, str(app_req.professional_id))
+    try:
+        day, slot, mode = booking.validate_booking(
+            db, models, professional, current_user.id,
+            app_req.appointment_date, app_req.appointment_time, app_req.consultation_mode,
+        )
+    except booking.BookingError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    appointment = models.ProfessionalAppointment(
+        user_id=current_user.id,
+        professional_id=professional.id,
+        appointment_date=day,
+        appointment_time=slot,
+        status="pending",
+        consultation_mode=mode,
+        notes_by_student=(app_req.notes_by_student or "").strip() or None,
+    )
+    db.add(appointment)
     db.commit()
-    db.refresh(db_appointment)
-    return db_appointment
+    db.refresh(appointment)
+    return _appointment_out(db, appointment, set())
 
 @app.delete("/api/users/me/appointments/{appointment_id}")
-def cancel_appointment(appointment_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+def cancel_appointment(appointment_id: str, reason: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    import booking
+    try:
+        appt_uuid = uuid.UUID(appointment_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     appointment = db.query(models.ProfessionalAppointment).filter(
-        models.ProfessionalAppointment.id == appointment_id,
-        models.ProfessionalAppointment.user_id == current_user.id
+        models.ProfessionalAppointment.id == appt_uuid,
+        models.ProfessionalAppointment.user_id == current_user.id,
     ).first()
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
-    if appointment.status in ["completed", "cancelled"]:
-        raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled appointment.")
-    
+    if not booking.is_upcoming(appointment):
+        raise HTTPException(status_code=400, detail="Only upcoming appointments can be cancelled.")
+
     appointment.status = "cancelled"
+    appointment.cancelled_by = "student"
+    appointment.cancellation_reason = (reason or "").strip() or None
     db.commit()
-    db.refresh(appointment)
     return {"status": "success", "message": "Appointment cancelled."}
 
 # --- User Job Applications ---
-@app.get("/api/users/me/applications", response_model=list[schemas.JobApplication])
-def get_my_applications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.JobApplication).filter(models.JobApplication.user_id == current_user.id).all()
+def _student_profile_for(db: Session, user: models.User) -> models.StudentProfile:
+    if not user.student_profile:
+        profile = models.StudentProfile(user_id=user.id)
+        db.add(profile)
+        db.flush()
+        user.student_profile = profile
+    return user.student_profile
 
-@app.post("/api/users/me/applications", response_model=schemas.JobApplication)
+def _application_out(db: Session, application: models.JobApplication, user) -> dict:
+    return {
+        "id": application.id,
+        "job_id": application.job_id,
+        "status": application.status,
+        "applied_datetime": application.created_datetime,
+        "cover_letter": application.cover_letter,
+        "screening_responses": application.screening_responses or {},
+        "interview_datetime": application.interview_datetime,
+        "employer_feedback": application.employer_feedback,
+        "job": _jobs_out(db, [application.job], user)[0] if application.job else None,
+    }
+
+@app.get("/api/users/me/applications")
+def get_my_applications(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if not current_user.student_profile:
+        return []
+    applications = db.query(models.JobApplication).filter(
+        models.JobApplication.student_profile_id == current_user.student_profile.id,
+        models.JobApplication.is_active == True,
+    ).order_by(models.JobApplication.created_datetime.desc()).all()
+    return [_application_out(db, a, current_user) for a in applications]
+
+@app.post("/api/users/me/applications")
 def apply_for_job(app_req: schemas.JobApplicationCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    db_app = models.JobApplication(**app_req.model_dump(), user_id=current_user.id)
-    db.add(db_app)
+    job = _published_jobs(db).filter(models.Job.id == app_req.job_id).first()
+    if not job:
+        raise HTTPException(status_code=400, detail="This job is no longer accepting applications.")
+
+    profile = _student_profile_for(db, current_user)
+    existing = db.query(models.JobApplication).filter(
+        models.JobApplication.student_profile_id == profile.id,
+        models.JobApplication.job_id == job.id,
+        models.JobApplication.is_active == True,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="You've already applied to this job.")
+
+    cover_letter = (app_req.cover_letter or "").strip() or None
+    if job.is_cover_letter_required and job.application_routing_mode != "external_link" and not cover_letter:
+        raise HTTPException(status_code=400, detail="A cover letter is required for this job.")
+
+    resume = profile.resume_data if isinstance(profile.resume_data, dict) else {}
+    application = models.JobApplication(
+        student_profile_id=profile.id,
+        job_id=job.id,
+        status="applied",
+        cover_letter=cover_letter,
+        screening_responses=app_req.screening_responses or {},
+        # Keep the resume as it was when applying, even if the profile resume changes later.
+        resume_snapshot={"filename": resume.get("filename") or "resume.pdf", "data": resume["data"]} if resume.get("data") else None,
+    )
+    db.add(application)
     db.commit()
-    db.refresh(db_app)
-    return db_app
+    db.refresh(application)
+    return _application_out(db, application, current_user)
 
 # --- User Test Attempts ---
-@app.get("/api/users/me/test-attempts", response_model=list[schemas.TestAttempt])
-def get_my_test_attempts(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.TestAttempt).filter(models.TestAttempt.user_id == current_user.id).all()
+def _review_allowed(test: models.Test) -> bool:
+    mode = (test.show_answer_after or "after_submit") if test else "after_submit"
+    if mode == "never":
+        return False
+    if mode == "after_test_ends" and test.scheduled_end_at and datetime.utcnow() < test.scheduled_end_at:
+        return False
+    return True
 
-@app.post("/api/users/me/test-attempts", response_model=schemas.TestAttempt)
-async def submit_test_attempt(attempt_req: schemas.TestAttemptCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    test = db.query(models.Test).filter(models.Test.id == attempt_req.test_id).first()
+def _attempt_result(attempt: models.TestAttempt) -> dict:
+    import test_engine
+    test = attempt.test
+    responses = [dict(r) for r in (attempt.question_responses or []) if isinstance(r, dict)]
+    review = _review_allowed(test)
+    if not review:
+        for r in responses:
+            for key in ("correct_option_ids", "correct_option", "explanation"):
+                r.pop(key, None)
+    percentage = _attempt_percentage(attempt)
+    discount = 0
+    if test and test.max_discount_percentage and attempt.attempt_number == 1:
+        if percentage >= 80:
+            discount = test.max_discount_percentage
+        elif percentage >= 50:
+            discount = test.max_discount_percentage // 2
+    return {
+        "id": attempt.id,
+        "test_id": attempt.test_id,
+        "test_title": test.title if test else "Test",
+        "test_mode": test.test_mode if test else "overall",
+        "attempt_number": attempt.attempt_number or 1,
+        "total_score": attempt.total_score or 0,
+        "max_score": attempt.max_score,
+        "percentage": percentage,
+        "is_passed": attempt.is_passed if attempt.is_passed is not None else (test is not None and percentage >= (test.pass_percentage or 0)),
+        "pass_percentage": test.pass_percentage if test else None,
+        "time_taken_seconds": attempt.time_taken_seconds or 0,
+        "completed_at": attempt.completed_at or attempt.created_datetime,
+        "section_scores": attempt.section_scores or [],
+        "discount_unlocked": discount,
+        "ai_report": attempt.ai_report,
+        "review_available": review,
+        "question_responses": responses,
+        "topic_scores": test_engine.topic_scores(responses),
+        **test_engine.counts(responses),
+    }
+
+@app.get("/api/users/me/test-attempts")
+def get_my_test_attempts(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    attempts = _user_attempts_query(db, current_user).order_by(models.TestAttempt.created_datetime.desc()).all()
+    return [
+        {k: v for k, v in _attempt_result(a).items() if k not in ("question_responses", "ai_report", "topic_scores")}
+        for a in attempts
+    ]
+
+@app.get("/api/users/me/test-attempts/{attempt_id}")
+def get_my_test_attempt(attempt_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    try:
+        attempt_uuid = uuid.UUID(attempt_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Result not found")
+    attempt = _user_attempts_query(db, current_user).filter(models.TestAttempt.id == attempt_uuid).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Result not found")
+    return _attempt_result(attempt)
+
+@app.post("/api/users/me/test-attempts")
+async def submit_test_attempt(req: schemas.AttemptSubmit, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Grades a submitted test on the server and adds an AI summary."""
+    import test_engine
+    test = db.query(models.Test).filter(models.Test.id == req.test_id, models.Test.is_active == True).first()
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
-        
-    db_attempt = models.TestAttempt(**attempt_req.model_dump(), user_id=current_user.id)
-    db.add(db_attempt)
+
+    previous = _user_attempts_query(db, current_user).filter(models.TestAttempt.test_id == test.id).count()
+    if test.max_attempts and previous >= test.max_attempts:
+        raise HTTPException(status_code=403, detail="You've used all attempts for this test.")
+
+    result = test_engine.grade(test, [a.model_dump() for a in req.answers])
+    time_taken = req.time_taken_seconds or sum(a.time_spent_seconds or 0 for a in req.answers)
+    profile = current_user.student_profile
+    if not profile:
+        profile = models.StudentProfile(user_id=current_user.id)
+        db.add(profile)
+        db.flush()
+
+    now = datetime.utcnow()
+    attempt = models.TestAttempt(
+        user_id=current_user.id,
+        student_profile_id=profile.id,
+        test_id=test.id,
+        attempt_number=previous + 1,
+        status="completed",
+        total_score=result["total_score"],
+        max_score=result["max_score"],
+        percentage=result["percentage"],
+        is_passed=result["is_passed"],
+        time_taken_seconds=time_taken,
+        started_at=now - timedelta(seconds=time_taken),
+        completed_at=now,
+        question_responses=result["question_responses"],
+        section_scores=result["section_scores"],
+    )
+    db.add(attempt)
     db.commit()
-    db.refresh(db_attempt)
-    
-    import json
-    import httpx
-    import os
-    
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key and attempt_req.question_responses and test.questions:
-        system_prompt = """You are an educational AI that analyses a student's test attempt and writes a personalised performance report. Always use second-person voice ('You'). Be concise, encouraging, and constructive.
+    db.refresh(attempt)
 
-Return exactly and ONLY a JSON object with this structure:
-{
-  "overall_insight": "string, 2-3 sentences, student voice",
-  "weak_areas": [
-    { "topic": "string", "subtopic": "string", "accuracy": number (0-100) }
-  ],
-  "strong_areas": [
-    { "topic": "string", "subtopic": "string", "accuracy": number (0-100) }
-  ],
-  "time_management": "string, 1 sentence"
-}
-"""
-        score = attempt_req.total_score or 0
-        total_q = attempt_req.max_score or attempt_req.total_questions or 1
-        pct = round((score / total_q) * 100)
-        time_taken = attempt_req.time_taken_seconds or 0
-        
-        q_data_lines = []
-        for q in attempt_req.question_responses:
-            if not isinstance(q, dict): continue
-            # If front-end sends question_text, use it, else generic
-            q_text = q.get('question_text', 'Unknown')[:100]
-            q_data_lines.append(f"- Question: {q_text}... | Correct: {q.get('is_correct', False)} | Time: {q.get('time_spent_seconds', 0)}s")
-            
-        user_prompt = f"""Test: {test.title}
-Total Questions: {total_q}
-Student Score: {score} / {total_q} ({pct}%)
-Total Time Taken: {time_taken}s
-
-Questions answered:
-{chr(10).join(q_data_lines[:30])}
-"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": "gpt-4o-mini",
-                        "response_format": {"type": "json_object"},
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        "temperature": 0.7
-                    },
-                    timeout=15.0
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    content = data["choices"][0]["message"]["content"].strip()
-                    db_attempt.ai_report = json.loads(content)
-                    db.commit()
-                    db.refresh(db_attempt)
-            except Exception as e:
-                print("AI Report generation failed:", e)
-                
-    return db_attempt
+    report = await test_engine.ai_report(test, result, time_taken)
+    if report:
+        attempt.ai_report = report
+        db.commit()
+        db.refresh(attempt)
+    return _attempt_result(attempt)
 
 # --- Notifications ---
 @app.get("/api/users/me/notifications", response_model=list[schemas.Notification])

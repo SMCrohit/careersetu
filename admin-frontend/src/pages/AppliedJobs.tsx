@@ -30,6 +30,9 @@ interface JobApplication {
   status: string;
   applied_datetime: string;
   resume_snapshot_url: string | null;
+  has_resume?: boolean;
+  resume_filename?: string | null;
+  resume_source?: 'submitted' | 'profile' | null;
   cover_letter: string | null;
   screening_responses: Record<string, string> | null;
   ai_match_score: number | null;
@@ -43,6 +46,29 @@ const AppliedJobs = () => {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState<JobApplication | null>(null);
+  const [resumeLoading, setResumeLoading] = useState<'view' | 'download' | null>(null);
+
+  // The resume endpoint needs the admin token, so fetch it as a blob instead of linking to it.
+  const openResume = async (app: JobApplication, mode: 'view' | 'download') => {
+    setResumeLoading(mode);
+    try {
+      const res = await api.get(`/job-applications/${app.id}/resume`, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      if (mode === 'view') {
+        window.open(url, '_blank', 'noopener');
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = app.resume_filename || `${app.applicant.full_name || 'resume'}.pdf`;
+        link.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      showToast('Could not load the resume', 'error');
+    } finally {
+      setResumeLoading(null);
+    }
+  };
   
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -626,7 +652,39 @@ const AppliedJobs = () => {
                 {/* Resume */}
                 <div>
                   <h4 className="text-sm font-semibold text-primaryText mb-2 flex items-center gap-2"><FileText size={16} className="text-blue-500"/> Resume</h4>
-                  {selectedApp.resume_snapshot_url ? (
+                  {selectedApp.has_resume ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 p-3 bg-backgroundLight rounded-lg border border-border">
+                        <FileText size={28} className="text-red-500 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-primaryText truncate">{selectedApp.resume_filename || 'resume.pdf'}</p>
+                          <p className="text-xs text-secondaryText">
+                            {selectedApp.resume_source === 'submitted'
+                              ? 'Submitted with this application'
+                              : "Candidate's current profile resume (no copy was saved when they applied)"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openResume(selectedApp, 'view')}
+                          disabled={resumeLoading !== null}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+                        >
+                          <ExternalLink size={16} /> {resumeLoading === 'view' ? 'Opening…' : 'View Resume'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openResume(selectedApp, 'download')}
+                          disabled={resumeLoading !== null}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-100 disabled:opacity-60"
+                        >
+                          <Download size={16} /> {resumeLoading === 'download' ? 'Downloading…' : 'Download'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : selectedApp.resume_snapshot_url ? (
                     <a 
                       href={selectedApp.resume_snapshot_url} 
                       target="_blank" 
@@ -636,7 +694,7 @@ const AppliedJobs = () => {
                       <Download size={16} /> Download Submitted Resume
                     </a>
                   ) : (
-                    <p className="text-sm text-secondaryText italic">No resume attached.</p>
+                    <p className="text-sm text-secondaryText italic">No resume attached. The candidate hasn't uploaded one to their profile.</p>
                   )}
                 </div>
 
