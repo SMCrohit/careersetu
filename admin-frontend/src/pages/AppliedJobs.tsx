@@ -652,16 +652,18 @@ const AppliedJobs = () => {
                 {/* Resume */}
                 <div>
                   <h4 className="text-sm font-semibold text-primaryText mb-2 flex items-center gap-2"><FileText size={16} className="text-blue-500"/> Resume</h4>
-                  {selectedApp.has_resume ? (
+                  {selectedApp.has_resume || selectedApp.resume_snapshot_url ? (
                     <div className="space-y-3">
                       <div className="flex items-center gap-3 p-3 bg-backgroundLight rounded-lg border border-border">
                         <FileText size={28} className="text-red-500 shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-primaryText truncate">{selectedApp.resume_filename || 'resume.pdf'}</p>
+                          <p className="text-sm font-medium text-primaryText truncate">
+                            {selectedApp.resume_filename || `${selectedApp.applicant.full_name || 'applicant'}_resume.pdf`}
+                          </p>
                           <p className="text-xs text-secondaryText">
-                            {selectedApp.resume_source === 'submitted'
-                              ? 'Submitted with this application'
-                              : "Candidate's current profile resume (no copy was saved when they applied)"}
+                            {selectedApp.resume_source === 'profile'
+                              ? "Candidate's current profile resume"
+                              : "Submitted with this application"}
                           </p>
                         </div>
                       </div>
@@ -680,19 +682,10 @@ const AppliedJobs = () => {
                           disabled={resumeLoading !== null}
                           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-100 disabled:opacity-60"
                         >
-                          <Download size={16} /> {resumeLoading === 'download' ? 'Downloading…' : 'Download'}
+                          <Download size={16} /> {resumeLoading === 'download' ? 'Downloading…' : 'Download Submitted Resume'}
                         </button>
                       </div>
                     </div>
-                  ) : selectedApp.resume_snapshot_url ? (
-                    <a 
-                      href={selectedApp.resume_snapshot_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-100"
-                    >
-                      <Download size={16} /> Download Submitted Resume
-                    </a>
                   ) : (
                     <p className="text-sm text-secondaryText italic">No resume attached. The candidate hasn't uploaded one to their profile.</p>
                   )}

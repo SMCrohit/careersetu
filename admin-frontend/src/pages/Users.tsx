@@ -22,6 +22,7 @@ const Users = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [currentLimit, setCurrentLimit] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'suspended'>('active');
   
   // Filters
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -66,7 +67,13 @@ const Users = () => {
     fetchUsersWithParams(filters, 1, '', 10);
   }, []);
 
-  const fetchUsersWithParams = async (overrideFilters: any = null, page: number = currentPage, search: string = searchTerm, limit: number = currentLimit) => {
+  const fetchUsersWithParams = async (
+    overrideFilters: any = null, 
+    page: number = currentPage, 
+    search: string = searchTerm, 
+    limit: number = currentLimit,
+    status: 'active' | 'suspended' = statusFilter
+  ) => {
     setLoading(true);
     try {
       const current = overrideFilters || filters;
@@ -78,6 +85,7 @@ const Users = () => {
       if(current.joined_end) params.append('joined_end', current.joined_end);
       if(current.min_profile_score) params.append('min_profile_score', current.min_profile_score);
       
+      params.append('status', status);
       params.append('page', page.toString());
       params.append('limit', limit.toString());
       if (search) params.append('search', search);
@@ -90,6 +98,13 @@ const Users = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStatusChange = (newStatus: 'active' | 'suspended') => {
+    if (statusFilter === newStatus) return;
+    setStatusFilter(newStatus);
+    setCurrentPage(1);
+    fetchUsersWithParams(null, 1, searchTerm, currentLimit, newStatus);
   };
 
   // Close export dropdown when clicking outside
@@ -185,9 +200,16 @@ const Users = () => {
               {(user.full_name || '?')[0].toUpperCase()}
             </div>
           )}
-          <span className="font-medium text-primaryText whitespace-nowrap">
-            {user.full_name && user.full_name.length > 50 ? user.full_name.substring(0, 50) + '...' : (user.full_name || 'N/A')}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-primaryText whitespace-nowrap">
+              {user.full_name && user.full_name.length > 50 ? user.full_name.substring(0, 50) + '...' : (user.full_name || 'N/A')}
+            </span>
+            {user.is_active === false && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 rounded uppercase tracking-wider">
+                Suspended
+              </span>
+            )}
+          </div>
         </div>
       )
     },
@@ -360,10 +382,41 @@ const Users = () => {
           fetchUsersWithParams(null, 1, searchTerm, size);
         }}
         toolbarExtras={
-          <button onClick={() => setIsFilterOpen(true)} className="flex items-center gap-2 px-3 py-1.5 border border-border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors bg-white shrink-0 h-[38px]">
-            <Filter size={16} /> 
-            Filters {Object.values(filters).filter(v => v !== '').length > 0 && <span className="w-5 h-5 bg-primaryBrand text-white text-[10px] flex items-center justify-center rounded-full">{Object.values(filters).filter(v => v !== '').length}</span>}
-          </button>
+          <div className="flex items-center gap-2.5">
+            {/* Active / Suspended Chips */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
+              <button
+                type="button"
+                onClick={() => handleStatusChange('active')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  statusFilter === 'active'
+                    ? 'bg-white text-emerald-700 shadow-sm font-bold'
+                    : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${statusFilter === 'active' ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
+                Active
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStatusChange('suspended')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  statusFilter === 'suspended'
+                    ? 'bg-white text-red-700 shadow-sm font-bold'
+                    : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${statusFilter === 'suspended' ? 'bg-red-500' : 'bg-gray-400'}`}></span>
+                Suspended
+              </button>
+            </div>
+
+            {/* Filter Button */}
+            <button onClick={() => setIsFilterOpen(true)} className="flex items-center gap-2 px-3 py-1.5 border border-border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors bg-white shrink-0 h-[38px]">
+              <Filter size={16} /> 
+              Filters {Object.values(filters).filter(v => v !== '').length > 0 && <span className="w-5 h-5 bg-primaryBrand text-white text-[10px] flex items-center justify-center rounded-full">{Object.values(filters).filter(v => v !== '').length}</span>}
+            </button>
+          </div>
         }
 
       />

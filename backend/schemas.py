@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional, Any
+from pydantic import BaseModel, ConfigDict, field_validator
+from typing import List, Optional, Any, Union
 from datetime import datetime, date, time
 from uuid import UUID
 
@@ -13,10 +13,9 @@ class ORMBase(BaseModel):
 
 class UserBase(BaseModel):
     mobile_number: Optional[str] = None
-    full_name: str
+    full_name: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = "student"
-    firebase_uid: Optional[str] = None
     firebase_uid: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):
@@ -181,6 +180,68 @@ class JobBase(BaseModel):
     skills_required: List[str] = []
     languages_required: List[str] = []
 
+    @field_validator('location', mode='before')
+    @classmethod
+    def clean_location(cls, v):
+        if not v or v == '':
+            return None
+        if isinstance(v, str):
+            v_str = v.strip()
+            return {'city': v_str} if v_str else None
+        if isinstance(v, dict):
+            return v if any(v.values()) else None
+        return None
+
+    @field_validator('skills_required', 'languages_required', mode='before')
+    @classmethod
+    def clean_list(cls, v):
+        if not v:
+            return []
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(',') if s.strip()]
+        if isinstance(v, list):
+            return [str(s).strip() for s in v if str(s).strip()]
+        return []
+
+    @field_validator('salary_min', 'salary_max', mode='before')
+    @classmethod
+    def clean_salary(cls, v):
+        if v == '' or v is None:
+            return None
+        try:
+            return int(float(v))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator('experience_required_years', mode='before')
+    @classmethod
+    def clean_exp(cls, v):
+        if v == '' or v is None:
+            return 0.0
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
+
+    @field_validator('vacancies_count', mode='before')
+    @classmethod
+    def clean_vacancies(cls, v):
+        if v == '' or v is None:
+            return 1
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 1
+
+    @field_validator('screening_questions', mode='before')
+    @classmethod
+    def clean_questions(cls, v):
+        if not v:
+            return []
+        if isinstance(v, list):
+            return [str(q).strip() for q in v if str(q).strip()]
+        return []
+
 class Job(JobBase, ORMBase):
     pass
 
@@ -216,7 +277,7 @@ class TestBase(BaseModel):
     default_per_question_seconds: Optional[int] = 60
 
 class TestQuestionBase(BaseModel):
-    test_id: UUID
+    test_id: Optional[UUID] = None
     question_type: str = "single_select"
     question_text: str
     question_image_url: Optional[str] = None
@@ -234,13 +295,70 @@ class TestQuestionBase(BaseModel):
     explanation_image_url: Optional[str] = None
     order_index: int = 0
 
+    @field_validator('marks', mode='before')
+    @classmethod
+    def clean_marks(cls, v):
+        if v == '' or v is None:
+            return 1.0
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 1.0
+
+    @field_validator('negative_marks', mode='before')
+    @classmethod
+    def clean_negative_marks(cls, v):
+        if v == '' or v is None:
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator('time_limit_seconds', mode='before')
+    @classmethod
+    def clean_time_limit(cls, v):
+        if v == '' or v is None:
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator('order_index', mode='before')
+    @classmethod
+    def clean_order_index(cls, v):
+        if v == '' or v is None:
+            return 0
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 0
+
+    @field_validator('options', mode='before')
+    @classmethod
+    def clean_options(cls, v):
+        if not v:
+            return []
+        if isinstance(v, list):
+            cleaned = []
+            for item in v:
+                if isinstance(item, dict):
+                    cleaned.append(item)
+                elif isinstance(item, str) and item.strip():
+                    cleaned.append({"id": str(len(cleaned) + 1), "text": item.strip()})
+            return cleaned
+        return []
+
 class TestQuestionCreate(TestQuestionBase):
     pass
 
 class TestQuestionUpdate(TestQuestionBase):
-    test_id: Optional[UUID] = None
     question_text: Optional[str] = None
     correct_answer: Optional[str] = None
+
+class BulkQuestionsRequest(BaseModel):
+    questions: List[TestQuestionCreate]
 
 class TestQuestionModel(TestQuestionBase, ORMBase):
     pass
@@ -272,6 +390,8 @@ class ProfessionalBase(BaseModel):
     is_featured: Optional[bool] = False
     consultation_mode: Optional[list] = []
     languages_spoken: Optional[list] = []
+    location_city: Optional[str] = None
+    is_active: Optional[bool] = True
 
 class ProfessionalReviewBase(BaseModel):
     professional_id: UUID

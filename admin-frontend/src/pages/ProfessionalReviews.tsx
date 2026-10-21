@@ -59,17 +59,33 @@ const ProfessionalReviews = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const extractList = (data: any): any[] => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.items)) return data.items;
+    return [];
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [revRes, profRes, usersRes] = await Promise.all([
+      const [revRes, profRes, usersRes] = await Promise.allSettled([
         api.get('/admin/professional-reviews'),
-        api.get('/professionals'),
-        api.get('/users')
+        api.get('/admin/professionals?limit=100').catch(() => api.get('/professionals?limit=100')),
+        api.get('/users?limit=100')
       ]);
-      setReviews(revRes.data);
-      setProfessionals(profRes.data);
-      setUsers(usersRes.data);
+
+      const revList = revRes.status === 'fulfilled' ? extractList(revRes.value.data) : [];
+      const profList = profRes.status === 'fulfilled' ? extractList(profRes.value.data) : [];
+      const userList = usersRes.status === 'fulfilled' ? extractList(usersRes.value.data) : [];
+
+      setReviews(revList);
+      setProfessionals(profList);
+      setUsers(userList);
+
+      if (revRes.status === 'rejected' && profRes.status === 'rejected' && usersRes.status === 'rejected') {
+        showToast('Unable to connect to the server. Please ensure the backend is running.', 'error');
+      }
     } catch (error) {
       showToast('Failed to load data', 'error');
     } finally {
@@ -130,7 +146,7 @@ const ProfessionalReviews = () => {
   };
 
   // ── Export helpers ─────────────────────────────────────────────────────────
-  const exportRows = reviews.map((review, i) => ({
+  const exportRows = (reviews || []).map((review, i) => ({
     '#': i + 1,
     'Professional': review.professional?.name || 'Unknown',
     'User': review.user?.full_name || review.user?.mobile_number || 'Unknown User',
@@ -230,7 +246,7 @@ const ProfessionalReviews = () => {
         </div>
         <div className="flex items-center gap-3">
           <div className="bg-primaryBrand/10 text-primaryBrand text-sm font-semibold px-3 py-1.5 rounded-full">
-            {reviews.length} Reviews
+            {(reviews || []).length} Reviews
           </div>
 
           {/* Export */}
@@ -266,7 +282,7 @@ const ProfessionalReviews = () => {
       </div>
 
       <DataTable
-        data={reviews}
+        data={reviews || []}
         columns={columns}
         searchPlaceholder="Search reviews..."
         searchableKeys={['professional.name', 'user.full_name', 'comment']}
@@ -287,8 +303,8 @@ const ProfessionalReviews = () => {
               onChange={e => setFormData({...formData, professional_id: e.target.value})}
             >
               <option value="" disabled>Select Professional</option>
-              {professionals.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.profession})</option>
+              {(professionals || []).map(p => (
+                <option key={p.id} value={p.id}>{p.name} {p.profession ? `(${p.profession})` : ''}</option>
               ))}
             </select>
           </div>
@@ -302,8 +318,8 @@ const ProfessionalReviews = () => {
               onChange={e => setFormData({...formData, user_id: e.target.value})}
             >
               <option value="" disabled>Select User</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.full_name || u.mobile_number}</option>
+              {(users || []).map(u => (
+                <option key={u.id} value={u.id}>{u.full_name || u.mobile_number || u.email || u.id}</option>
               ))}
             </select>
           </div>

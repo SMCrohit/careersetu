@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/app_ui.dart';
+import 'math_blitz_screen.dart';
+import 'stroop_test_screen.dart';
 import 'sudoku_screen.dart';
+import 'wordle_screen.dart';
 
 /// Games tab.
 class BrainGamesScreen extends StatelessWidget {
   const BrainGamesScreen({super.key});
 
   void _openSudoku(BuildContext context) => Navigator.push(context, MaterialPageRoute(builder: (_) => const SudokuScreen()));
+  void _openWordle(BuildContext context) => Navigator.push(context, MaterialPageRoute(builder: (_) => const WordleScreen()));
+  void _openStroop(BuildContext context) => Navigator.push(context, MaterialPageRoute(builder: (_) => const StroopTestScreen()));
+  void _openMathBlitz(BuildContext context) => Navigator.push(context, MaterialPageRoute(builder: (_) => const MathBlitzScreen()));
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +50,30 @@ class BrainGamesScreen extends StatelessWidget {
               subtitle: '6×6 number puzzle',
               chips: const [('Easy', Color(0xFF059669)), ('~5 min', AppColors.secondaryText)],
               onTap: () => _openSudoku(context),
+            ),
+            const SizedBox(height: 12),
+            _GameCard(
+              icon: Icons.spellcheck_rounded,
+              title: 'Word Guess',
+              subtitle: 'Deductive vocabulary challenge',
+              chips: const [('Wordle', Color(0xFF2563EB)), ('6 tries', AppColors.secondaryText)],
+              onTap: () => _openWordle(context),
+            ),
+            const SizedBox(height: 12),
+            _GameCard(
+              icon: Icons.palette_outlined,
+              title: 'Color Reflex',
+              subtitle: 'Stroop test & brain clash reflex',
+              chips: const [('Reflex', Color(0xFF9333EA)), ('45s Blitz', AppColors.secondaryText)],
+              onTap: () => _openStroop(context),
+            ),
+            const SizedBox(height: 12),
+            _GameCard(
+              icon: Icons.bolt_rounded,
+              title: 'Math Blitz',
+              subtitle: 'Rapid arithmetic & placement aptitude',
+              chips: const [('Aptitude', Color(0xFFD97706)), ('60s Blitz', AppColors.secondaryText)],
+              onTap: () => _openMathBlitz(context),
             ),
           ],
         ),

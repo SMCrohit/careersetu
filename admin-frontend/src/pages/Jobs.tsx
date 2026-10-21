@@ -231,14 +231,26 @@ const Jobs = () => {
 
   const openEditModal = (job: any) => {
     // Map existing job fields to form data
+    const skillsList = Array.isArray(job.skills_required) 
+      ? job.skills_required 
+      : (job.skills_required ? String(job.skills_required).split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+
+    const langsList = Array.isArray(job.languages_required) 
+      ? job.languages_required 
+      : (job.languages_required ? String(job.languages_required).split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+
+    const loc = typeof job.location === 'object' && job.location 
+      ? job.location 
+      : (job.location ? { city: String(job.location) } : null);
+
     setFormData({
       title: job.title || '',
       company_name: job.company_name || job.company || '',
-      location: job.location || '',
+      location: loc,
       job_type: job.job_type || job.type || 'Full-time',
       work_model: job.work_model || 'On-Site',
       status: job.status || 'published',
-      is_featured: job.is_featured || false,
+      is_featured: Boolean(job.is_featured),
       application_routing_mode: job.application_routing_mode || 'manual_review',
       employer_contact_email: job.employer_contact_email || '',
       external_apply_url: job.external_apply_url || '',
@@ -251,30 +263,68 @@ const Jobs = () => {
       currency: job.currency || 'INR',
       experience_required_years: job.experience_required_years || 0,
       education_required: job.education_required || 'Any Graduate',
-      skills_required: job.skills_required ? (Array.isArray(job.skills_required) ? job.skills_required.join(', ') : job.skills_required) : '',
-      languages_required: job.languages_required ? (Array.isArray(job.languages_required) ? job.languages_required.join(', ') : job.languages_required) : '',
+      skills_required: skillsList,
+      languages_required: langsList,
       description: job.description || '',
-      screening_questions: job.screening_questions || [],
-      is_cover_letter_required: job.is_cover_letter_required || false
+      screening_questions: Array.isArray(job.screening_questions) ? job.screening_questions : [],
+      is_cover_letter_required: Boolean(job.is_cover_letter_required)
     });
     setEditingId(job.id);
     setIsModalOpen(true);
   };
 
   const openAddModal = () => {
-    setFormData(defaultFormData);
+    setFormData({
+      ...defaultFormData,
+      location: null,
+      skills_required: [],
+      languages_required: [],
+      screening_questions: []
+    });
     setEditingId(null);
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Fields are already perfectly formatted arrays and objects
-    const payload = { ...formData };
     setIsSubmitting(true);
 
     try {
+      const payload: any = { ...formData };
+
+      // Ensure skills and languages are clean arrays
+      if (typeof payload.skills_required === 'string') {
+        payload.skills_required = payload.skills_required.split(',').map((s: string) => s.trim()).filter(Boolean);
+      } else if (!Array.isArray(payload.skills_required)) {
+        payload.skills_required = [];
+      }
+
+      if (typeof payload.languages_required === 'string') {
+        payload.languages_required = payload.languages_required.split(',').map((s: string) => s.trim()).filter(Boolean);
+      } else if (!Array.isArray(payload.languages_required)) {
+        payload.languages_required = [];
+      }
+
+      // Ensure location is valid object or null
+      if (typeof payload.location === 'string') {
+        payload.location = payload.location.trim() ? { city: payload.location.trim() } : null;
+      } else if (!payload.location || (typeof payload.location === 'object' && Object.keys(payload.location).length === 0)) {
+        payload.location = null;
+      }
+
+      // Clean screening questions
+      if (Array.isArray(payload.screening_questions)) {
+        payload.screening_questions = payload.screening_questions.map((q: string) => q.trim()).filter(Boolean);
+      } else {
+        payload.screening_questions = [];
+      }
+
+      // Clean numbers
+      payload.salary_min = payload.salary_min ? parseInt(payload.salary_min) : 0;
+      payload.salary_max = payload.salary_max ? parseInt(payload.salary_max) : 0;
+      payload.vacancies_count = payload.vacancies_count ? parseInt(payload.vacancies_count) : 1;
+      payload.experience_required_years = payload.experience_required_years ? parseFloat(payload.experience_required_years) : 0;
+
       if (editingId) {
         const res = await api.put(`/jobs/${editingId}`, payload);
         setJobs(jobs.map(j => j.id === editingId ? res.data : j));
@@ -285,8 +335,13 @@ const Jobs = () => {
         showToast("Job created successfully", "success");
       }
       setIsModalOpen(false);
-    } catch (error) {
-      showToast(`Failed to ${editingId ? 'update' : 'create'} job`, "error");
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.detail 
+        ? (typeof error.response.data.detail === 'string' 
+            ? error.response.data.detail 
+            : JSON.stringify(error.response.data.detail))
+        : `Failed to ${editingId ? 'update' : 'create'} job`;
+      showToast(errorMsg, "error");
     } finally {
       setIsSubmitting(false);
     }

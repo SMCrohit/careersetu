@@ -14,13 +14,11 @@ import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../jobs/presentation/screens/applied_jobs_screen.dart';
 import '../../../offers/presentation/screens/offers_hub_screen.dart';
 import '../../../professionals/data/professionals_repository.dart';
-import '../../../professionals/presentation/providers/professionals_provider.dart';
-import '../../../professionals/presentation/widgets/professional_home_card.dart';
-import '../../../professionals/presentation/screens/professional_details_screen.dart';
 import '../../../professionals/presentation/screens/professional_listings_screen.dart';
 import '../../../tests/presentation/screens/my_tests_screen.dart';
 import '../providers/banners_provider.dart';
 import '../providers/navigation_provider.dart';
+import '../widgets/category_promo_card.dart';
 import 'showcase_keys.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -146,8 +144,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         body: RefreshIndicator(
           onRefresh: () async {
             await ref.refresh(bannersProvider.future);
-            ref.invalidate(featuredProfessionalsProvider(ProfessionalGroup.doctor));
-            ref.invalidate(featuredProfessionalsProvider(ProfessionalGroup.nonDoctor));
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(
@@ -346,23 +342,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
 
-                // Health & Wellness: featured doctors.
-                _buildProfessionalSection(
-                  context,
+                const SizedBox(height: 12),
+
+                // Health & Wellness Card
+                CategoryPromoCard(
                   title: 'Health & Wellness',
-                  subtitle: 'Book certified doctors and therapists.',
-                  group: ProfessionalGroup.doctor,
-                  exploreLabel: 'Explore doctors',
+                  subtitle: 'Book certified doctors, therapists and specialists.',
+                  badgeText: 'Certified Doctors',
+                  badgeIcon: Icons.verified_rounded,
+                  imageAsset: 'assets/images/doctor_banner.jpg',
+                  buttonText: 'See All Doctors',
+                  themeColor: const Color(0xFF0284C7),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfessionalListingsScreen(
+                          group: ProfessionalGroup.doctor,
+                        ),
+                      ),
+                    );
+                  },
                 ),
 
-                // Professionals: featured non-doctors.
-                _buildProfessionalSection(
-                  context,
+                // Professionals Card
+                CategoryPromoCard(
                   title: 'Professionals',
-                  subtitle: 'Book CAs, lawyers, consultants and more.',
-                  group: ProfessionalGroup.nonDoctor,
-                  exploreLabel: 'Explore professionals',
+                  subtitle: 'Book CAs, lawyers, consultants & advisors.',
+                  badgeText: 'Verified Experts',
+                  badgeIcon: Icons.workspace_premium_rounded,
+                  imageAsset: 'assets/images/professional_banner.jpg',
+                  buttonText: 'See All Professionals',
+                  themeColor: AppColors.primaryBrand,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfessionalListingsScreen(
+                          group: ProfessionalGroup.nonDoctor,
+                        ),
+                      ),
+                    );
+                  },
                 ),
+
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -609,79 +633,5 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
     }
-  }
-
-  /// A Home section with up to 4 featured professionals of one group.
-  Widget _buildProfessionalSection(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required ProfessionalGroup group,
-    required String exploreLabel,
-  }) {
-    void openAll() => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ProfessionalListingsScreen(group: group)),
-        );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryText),
-                ),
-                TextButton(
-                  onPressed: openAll,
-                  child: const Text('See All', style: TextStyle(color: AppColors.primaryBrand, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(subtitle, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 230,
-            child: Consumer(
-              builder: (context, ref, _) => ref.watch(featuredProfessionalsProvider(group)).when(
-                    data: (featured) => ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      children: featured.isEmpty
-                          ? [ExploreProfessionalsCard(label: exploreLabel, onTap: openAll)]
-                          : featured
-                              .take(4)
-                              .map((p) => ProfessionalHomeCard(
-                                    professional: p,
-                                    onTap: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => ProfessionalDetailsScreen(professional: p)),
-                                    ),
-                                  ))
-                              .toList(),
-                    ),
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (_, __) => Center(
-                      child: TextButton(
-                        onPressed: () => ref.invalidate(featuredProfessionalsProvider(group)),
-                        child: const Text('Could not load. Tap to retry'),
-                      ),
-                    ),
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

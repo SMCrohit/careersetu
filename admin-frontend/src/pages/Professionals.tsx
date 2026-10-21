@@ -226,13 +226,15 @@ const Professionals = () => {
       } else {
         const res = await api.post('/professionals', formData);
         setProfessionals([res.data, ...professionals]);
+        setServerTotal(prev => prev + 1);
         showToast("Professional created successfully", "success");
       }
       setIsModalOpen(false);
       setFormData(defaultFormData);
       setEditingId(null);
-    } catch (error) {
-      showToast(`Failed to ${editingId ? 'update' : 'create'} professional`, "error");
+    } catch (error: any) {
+      const msg = error?.response?.data?.detail || `Failed to ${editingId ? 'update' : 'create'} professional`;
+      showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), "error");
     }
   };
 

@@ -55,6 +55,21 @@ try:
         alembic.config.main(argv=alembicArgs)
     finally:
         os.chdir(original_cwd)
+
+    # Ensure professional reviews exist in production
+    try:
+        from seed_reviews import seed_if_needed
+        seed_if_needed(min_count=15)
+    except Exception as seed_err:
+        print(f"Notice: Automatic review check skipped: {seed_err}")
+
+    # Ensure applied job resumes are backfilled with valid snapshots in production
+    try:
+        from backfill_resumes import backfill_if_needed
+        backfill_if_needed()
+    except Exception as bf_err:
+        print(f"Notice: Automatic resume backfill check skipped: {bf_err}")
+
     # Database initialization is now handled externally/via migrations
 except Exception as e:
     print(f"CRITICAL ERROR INITIALIZING DATABASE ON STARTUP: {e}")
@@ -307,7 +322,7 @@ def get_all_companies(db: Session = Depends(get_db)):
     return [c[0] for c in companies if c[0]]
 
 def _application_resume(app: models.JobApplication):
-    """The resume for an application: the copy saved when applying, else the applicant's current profile resume."""
+    """The resume for an application: the copy saved when applying, else the applicant's current profile resume, else auto-generated ATS resume."""
     snapshot = app.resume_snapshot if isinstance(app.resume_snapshot, dict) else None
     if snapshot and snapshot.get("data"):
         return snapshot, "submitted"
@@ -315,14 +330,32 @@ def _application_resume(app: models.JobApplication):
     current = profile.resume_data if profile and isinstance(profile.resume_data, dict) else None
     if current and current.get("data"):
         return current, "profile"
-    return None, None
+    
+    # Auto-generate ATS resume if neither snapshot nor profile resume exists
+    try:
+        import base64
+        from applicant_resume_generator import generate_applicant_resume_pdf
+        pdf_bytes = generate_applicant_resume_pdf(app)
+        candidate_name = ""
+        if profile and profile.user and profile.user.full_name:
+            candidate_name = re.sub(r'[^A-Za-z0-9_ -]', '', profile.user.full_name).strip().replace(' ', '_')
+        fname = f"{candidate_name or 'applicant'}_resume.pdf"
+        b64_data = base64.b64encode(pdf_bytes).decode("utf-8")
+        generated_snap = {
+            "filename": fname,
+            "data": b64_data,
+        }
+        return generated_snap, "submitted"
+    except Exception as e:
+        logger.error(f"Error generating fallback resume: {e}")
+        return None, None
 
 def _application_resume_info(app: models.JobApplication) -> dict:
     resume, source = _application_resume(app)
     return {
         "has_resume": resume is not None,
         "resume_filename": (resume.get("filename") or "resume.pdf") if resume else None,
-        "resume_source": source,
+        "resume_source": source or "submitted",
     }
 
 @app.get("/api/job-applications/{app_id}/resume")
@@ -339,6 +372,12 @@ def download_application_resume(app_id: str, db: Session = Depends(get_db), admi
     resume, source = _application_resume(application)
     if not resume:
         raise HTTPException(status_code=404, detail="No resume attached to this application")
+    if not application.resume_snapshot and resume:
+        try:
+            application.resume_snapshot = resume
+            db.commit()
+        except Exception:
+            db.rollback()
     try:
         pdf_bytes = base64.b64decode(resume["data"])
     except Exception:
@@ -349,7 +388,7 @@ def download_application_resume(app_id: str, db: Session = Depends(get_db), admi
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
-            "X-Resume-Source": source,
+            "X-Resume-Source": source or "submitted",
             "Access-Control-Expose-Headers": "Content-Disposition, X-Resume-Source",
         },
     )
@@ -683,16 +722,22 @@ def get_job(job_id: str, db: Session = Depends(get_db),
 
 @app.post("/api/jobs", response_model=schemas.Job)
 def create_job(job: schemas.JobBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_job = models.Job(**job.model_dump())
+    valid_columns = {c.name for c in models.Job.__table__.columns}
+    job_dict = {k: v for k, v in job.model_dump().items() if k in valid_columns and k not in ["id", "created_datetime", "deleted_datetime"]}
+    db_job = models.Job(**job_dict)
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
-    auth.log_admin_action(db, admin, "CREATE", "Jobs", db_job.id)
+    auth.log_admin_action(db, admin, "CREATE", "Jobs", str(db_job.id))
     return db_job
 
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_job = db.query(models.Job).filter(models.Job.id == job_id).first()
+    try:
+        job_uuid = uuid.UUID(str(job_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db_job = db.query(models.Job).filter(models.Job.id == job_uuid).first()
     if not db_job:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -700,19 +745,25 @@ def delete_job(job_id: str, db: Session = Depends(get_db), admin: str = Depends(
     from datetime import datetime
     db_job.deleted_datetime = datetime.utcnow()
     db.commit()
-    auth.log_admin_action(db, admin, "DELETE", "Jobs", job_id)
+    auth.log_admin_action(db, admin, "DELETE", "Jobs", str(job_uuid))
     return {"status": "Job soft deleted"}
 
 @app.put("/api/jobs/{job_id}", response_model=schemas.Job)
 def update_job(job_id: str, job_update: schemas.JobBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_job = db.query(models.Job).filter(models.Job.id == job_id, models.Job.is_active == True).first()
+    try:
+        job_uuid = uuid.UUID(str(job_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db_job = db.query(models.Job).filter(models.Job.id == job_uuid, models.Job.is_active == True).first()
     if not db_job:
         raise HTTPException(status_code=404, detail="Job not found")
+    valid_columns = {c.name for c in models.Job.__table__.columns}
     for key, value in job_update.model_dump().items():
-        setattr(db_job, key, value)
+        if key in valid_columns and key not in ["id", "created_datetime", "deleted_datetime"]:
+            setattr(db_job, key, value)
     db.commit()
     db.refresh(db_job)
-    auth.log_admin_action(db, admin, "UPDATE", "Jobs", job_id)
+    auth.log_admin_action(db, admin, "UPDATE", "Jobs", str(job_uuid))
     return db_job
 
 # Tests CRUD
@@ -883,21 +934,57 @@ def delete_test(test_id: str, db: Session = Depends(get_db), admin: str = Depend
     auth.log_admin_action(db, admin, "DELETE", "Tests", test_id)
     return {"status": "Test soft deleted"}
 
+@app.get("/api/tests/sample-questions-template")
+def download_sample_questions_template():
+    from fastapi.responses import Response
+    sample_csv = (
+        "question_text,question_type,option_1,option_2,option_3,option_4,correct_answer,marks,negative_marks,time_limit_seconds,section,topic,subtopic,difficulty,explanation\n"
+        "\"What is the time complexity of searching in a balanced binary search tree?\",single_select,\"O(1)\",\"O(n)\",\"O(log n)\",\"O(n^2)\",\"O(log n)\",1.0,0.25,60,\"Computer Science\",\"Data Structures\",\"Trees\",\"Medium\",\"Balanced BST operations take O(log n) time.\"\n"
+        "\"Which of the following numbers are prime?\",multi_select,\"2\",\"4\",\"7\",\"9\",\"2||7\",2.0,0.5,60,\"Mathematics\",\"Number Theory\",\"Primes\",\"Medium\",\"2 and 7 are prime numbers.\"\n"
+        "\"Python is a compiled language rather than an interpreted language.\",true_false,\"True\",\"False\",,,\"False\",1.0,0.25,45,\"Computer Science\",\"Programming\",\"Python\",\"Easy\",\"Python is an interpreted language.\"\n"
+        "\"What does CPU stand for?\",single_select,\"Central Processing Unit\",\"Computer Personal Unit\",\"Central Processor Universal\",\"Control Processing Unit\",\"Central Processing Unit\",1.0,0.25,60,\"General IT\",\"Hardware\",\"Architecture\",\"Easy\",\"CPU stands for Central Processing Unit.\"\n"
+    )
+    return Response(
+        content=sample_csv,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="sample_questions_template.csv"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        }
+    )
+
 @app.get("/api/tests/{test_id}", response_model=schemas.TestModel)
 def get_test(test_id: str, db: Session = Depends(get_db)):
-    db_test = db.query(models.Test).filter(models.Test.id == test_id, models.Test.is_active == True).first()
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Test not found")
+    db_test = db.query(models.Test).filter(models.Test.id == t_uuid, models.Test.is_active == True).first()
     if not db_test:
         raise HTTPException(status_code=404, detail="Test not found")
     return db_test
 
 @app.get("/api/tests/{test_id}/questions", response_model=list[schemas.TestQuestionModel])
 def get_test_questions(test_id: str, db: Session = Depends(get_db)):
-    return db.query(models.TestQuestion).filter(models.TestQuestion.test_id == test_id).order_by(models.TestQuestion.order_index).all()
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Test not found")
+    return db.query(models.TestQuestion).filter(models.TestQuestion.test_id == t_uuid).order_by(models.TestQuestion.order_index).all()
 
 @app.post("/api/tests/{test_id}/questions", response_model=schemas.TestQuestionModel)
 def create_test_question(test_id: str, question: schemas.TestQuestionCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    data = question.model_dump()
-    data["test_id"] = test_id
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Test not found")
+    db_test = db.query(models.Test).filter(models.Test.id == t_uuid).first()
+    if not db_test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    
+    valid_cols = {c.name for c in models.TestQuestion.__table__.columns}
+    data = {k: v for k, v in question.model_dump().items() if k in valid_cols and k not in ["id", "created_datetime", "deleted_datetime"]}
+    data["test_id"] = t_uuid
     db_question = models.TestQuestion(**data)
     db.add(db_question)
     db.commit()
@@ -907,25 +994,71 @@ def create_test_question(test_id: str, question: schemas.TestQuestionCreate, db:
 
 @app.put("/api/tests/{test_id}/questions/{question_id}", response_model=schemas.TestQuestionModel)
 def update_test_question(test_id: str, question_id: str, question_update: schemas.TestQuestionUpdate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == question_id, models.TestQuestion.test_id == test_id).first()
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+        q_uuid = uuid.UUID(str(question_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Question or Test not found")
+    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == q_uuid, models.TestQuestion.test_id == t_uuid).first()
     if not db_question:
         raise HTTPException(status_code=404, detail="Question not found")
+    
+    valid_cols = {c.name for c in models.TestQuestion.__table__.columns}
     for key, value in question_update.model_dump(exclude_unset=True).items():
-        setattr(db_question, key, value)
+        if key in valid_cols and key not in ["id", "created_datetime", "deleted_datetime", "test_id"]:
+            setattr(db_question, key, value)
     db.commit()
     db.refresh(db_question)
-    auth.log_admin_action(db, admin, "UPDATE", "TestQuestion", question_id)
+    auth.log_admin_action(db, admin, "UPDATE", "TestQuestion", str(q_uuid))
     return db_question
 
 @app.delete("/api/tests/{test_id}/questions/{question_id}")
 def delete_test_question(test_id: str, question_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == question_id, models.TestQuestion.test_id == test_id).first()
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+        q_uuid = uuid.UUID(str(question_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Question or Test not found")
+    db_question = db.query(models.TestQuestion).filter(models.TestQuestion.id == q_uuid, models.TestQuestion.test_id == t_uuid).first()
     if not db_question:
         raise HTTPException(status_code=404, detail="Question not found")
     db.delete(db_question)
     db.commit()
-    auth.log_admin_action(db, admin, "DELETE", "TestQuestion", question_id)
+    auth.log_admin_action(db, admin, "DELETE", "TestQuestion", str(q_uuid))
     return {"status": "success"}
+
+@app.post("/api/tests/{test_id}/questions/bulk")
+def bulk_create_test_questions(test_id: str, payload: schemas.BulkQuestionsRequest, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    try:
+        t_uuid = uuid.UUID(str(test_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Test not found")
+    db_test = db.query(models.Test).filter(models.Test.id == t_uuid).first()
+    if not db_test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    
+    if not payload.questions:
+        raise HTTPException(status_code=400, detail="No questions provided in bulk payload")
+    
+    valid_cols = {c.name for c in models.TestQuestion.__table__.columns}
+    created_questions = []
+    
+    current_max_order = db.query(func.max(models.TestQuestion.order_index)).filter(models.TestQuestion.test_id == t_uuid).scalar() or 0
+    
+    for i, q in enumerate(payload.questions):
+        data = {k: v for k, v in q.model_dump().items() if k in valid_cols and k not in ["id", "created_datetime", "deleted_datetime"]}
+        data["test_id"] = t_uuid
+        if not data.get("order_index"):
+            data["order_index"] = current_max_order + i + 1
+        db_q = models.TestQuestion(**data)
+        db.add(db_q)
+        created_questions.append(db_q)
+    
+    db.commit()
+    auth.log_admin_action(db, admin, "BULK_CREATE", "TestQuestion", f"Bulk added {len(created_questions)} questions to test {t_uuid}")
+    return {"status": "success", "count": len(created_questions)}
+
+
 
 @app.put("/api/tests/{test_id}", response_model=schemas.TestModel)
 def update_test(test_id: str, test_update: schemas.TestBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
@@ -1265,7 +1398,15 @@ def get_professional(professional_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/professionals", response_model=schemas.Professional)
 def create_professional(professional: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_professional = models.Professional(**professional.model_dump())
+    import re
+    prof_dict = professional.model_dump()
+    valid_cols = {c.name for c in models.Professional.__table__.columns}
+    create_data = {k: v for k, v in prof_dict.items() if k in valid_cols}
+    if not create_data.get("years_experience_numeric") and create_data.get("experience"):
+        m = re.search(r'\d+', str(create_data["experience"]))
+        if m:
+            create_data["years_experience_numeric"] = int(m.group())
+    db_professional = models.Professional(**create_data)
     db.add(db_professional)
     db.commit()
     db.refresh(db_professional)
@@ -1286,10 +1427,17 @@ def delete_professional(professional_id: str, db: Session = Depends(get_db), adm
 
 @app.put("/api/professionals/{professional_id}", response_model=schemas.Professional)
 def update_professional(professional_id: str, professional_update: schemas.ProfessionalBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_professional = db.query(models.Professional).filter(models.Professional.id == professional_id, models.Professional.is_active == True).first()
+    import re
+    db_professional = db.query(models.Professional).filter(models.Professional.id == professional_id).first()
     if not db_professional:
         raise HTTPException(status_code=404, detail="Professional not found")
-    for key, value in professional_update.model_dump().items():
+    valid_cols = {c.name for c in models.Professional.__table__.columns}
+    update_data = {k: v for k, v in professional_update.model_dump().items() if k in valid_cols}
+    if not update_data.get("years_experience_numeric") and update_data.get("experience"):
+        m = re.search(r'\d+', str(update_data["experience"]))
+        if m:
+            update_data["years_experience_numeric"] = int(m.group())
+    for key, value in update_data.items():
         setattr(db_professional, key, value)
     db.commit()
     db.refresh(db_professional)
@@ -1745,15 +1893,20 @@ def get_users(
     joined_end: str = None,
     min_profile_score: int = None,
     search: str = None,
+    status: str = "active",
     page: int = 1,
     limit: int = 10,
     db: Session = Depends(get_db),
     admin: str = Depends(auth.get_current_admin)
 ):
     query = db.query(models.User).outerjoin(models.StudentProfile).filter(
-        models.User.is_active == True,
         models.User.role == "student"
     )
+
+    if status == "suspended":
+        query = query.filter(models.User.is_active == False)
+    elif status == "active":
+        query = query.filter(models.User.is_active == True)
     
     # Filters
     if city:
@@ -1811,6 +1964,7 @@ def get_users(
             "full_name": user.full_name,
             "email": user.email,
             "mobile_number": user.mobile_number,
+            "is_active": user.is_active,
             "city": sp.city if sp else None,
             "goal": {"name": sp.goal.name} if sp and sp.goal else None,
             "experience_years": sp.years_of_experience if sp else 0,
@@ -1831,7 +1985,7 @@ from fastapi.encoders import jsonable_encoder
 
 @app.get("/api/users/{user_id}/details")
 def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    user = db.query(models.User).filter(models.User.id == user_id, models.User.is_active == True).first()
+    user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
@@ -1890,16 +2044,23 @@ def get_user_details(user_id: str, db: Session = Depends(get_db), admin: str = D
         "resume_sessions": resume_sessions_encoded
     }
 
-@app.put("/api/users/profile", response_model=schemas.User)
-def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+def _apply_user_profile_update(target_user: models.User, user_update: schemas.UserProfileUpdate, db: Session) -> models.User:
     if user_update.mobile_number is not None:
         # Check if mobile number is already in use
         existing_user = db.query(models.User).filter(models.User.mobile_number == user_update.mobile_number).first()
-        if existing_user and existing_user.id != current_user.id:
+        if existing_user and str(existing_user.id) != str(target_user.id):
             raise HTTPException(status_code=400, detail="Mobile number already in use by another account.")
-        current_user.mobile_number = user_update.mobile_number
+        target_user.mobile_number = user_update.mobile_number
+
+    if user_update.email is not None:
+        # Check if email is already in use
+        existing_user_email = db.query(models.User).filter(models.User.email == user_update.email).first()
+        if existing_user_email and str(existing_user_email.id) != str(target_user.id):
+            raise HTTPException(status_code=400, detail="Email already in use by another account.")
+        target_user.email = user_update.email
+
     if user_update.full_name is not None:
-        current_user.full_name = user_update.full_name
+        target_user.full_name = user_update.full_name
 
     # Handle StudentProfile fields
     profile_fields = [
@@ -1908,19 +2069,22 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
         'preferred_job_location', 'willing_to_relocate', 'expected_salary', 'current_salary',
         'notice_period_days', 'skills', 'languages', 'education_history', 'work_experience',
         'projects', 'certifications', 'achievements', 'hobbies', 'references',
-        'resume_data', 'whatsapp_number', 'email', 'profile_image_url'
+        'resume_data', 'whatsapp_number', 'profile_image_url'
     ]
     
-    if any(getattr(user_update, field) is not None for field in profile_fields) or user_update.goal is not None or user_update.acquisition_source is not None:
-        if not current_user.student_profile:
-            new_profile = models.StudentProfile(user_id=current_user.id)
+    if any(getattr(user_update, field) is not None for field in profile_fields) or user_update.email is not None or user_update.goal is not None or user_update.acquisition_source is not None:
+        if not target_user.student_profile:
+            new_profile = models.StudentProfile(user_id=target_user.id)
             db.add(new_profile)
             db.flush()
-            current_user.student_profile = new_profile
+            target_user.student_profile = new_profile
             
         for field in profile_fields:
             if getattr(user_update, field) is not None:
-                setattr(current_user.student_profile, field, getattr(user_update, field))
+                setattr(target_user.student_profile, field, getattr(user_update, field))
+
+        if user_update.email is not None:
+            target_user.student_profile.email = user_update.email
                 
         # Sync skills with SkillDictionary
         if user_update.skills is not None:
@@ -1939,7 +2103,7 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
                 goal = models.Goal(name=user_update.goal)
                 db.add(goal)
                 db.flush()
-            current_user.student_profile.goal_id = goal.id
+            target_user.student_profile.goal_id = goal.id
             
         if user_update.acquisition_source is not None:
             # Find or create source
@@ -1948,15 +2112,28 @@ def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = De
                 src = models.AcquisitionSource(name=user_update.acquisition_source)
                 db.add(src)
                 db.flush()
-            current_user.student_profile.acquisition_source_id = src.id
+            target_user.student_profile.acquisition_source_id = src.id
 
-    if current_user.student_profile:
-        current_user.student_profile.profile_completion_score = calculate_profile_score(current_user, current_user.student_profile)
+    if target_user.student_profile:
+        target_user.student_profile.profile_completion_score = calculate_profile_score(target_user, target_user.student_profile)
     
     db.commit()
-    db.refresh(current_user)
-    db.refresh(current_user)
-    return current_user
+    db.refresh(target_user)
+    return target_user
+
+
+@app.put("/api/users/profile", response_model=schemas.User)
+def update_user_profile(user_update: schemas.UserProfileUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return _apply_user_profile_update(current_user, user_update, db)
+
+
+@app.put("/api/users/{user_id}/profile", response_model=schemas.User)
+@app.put("/api/users/{user_id}", response_model=schemas.User)
+def admin_update_user_profile(user_id: str, user_update: schemas.UserProfileUpdate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _apply_user_profile_update(target_user, user_update, db)
 
 # --- User Appointments ---
 def _appointment_out(db: Session, a: models.ProfessionalAppointment, reviewed: set) -> dict:
@@ -2103,6 +2280,28 @@ def apply_for_job(app_req: schemas.JobApplicationCreate, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="A cover letter is required for this job.")
 
     resume = profile.resume_data if isinstance(profile.resume_data, dict) else {}
+    resume_snapshot = None
+    if resume.get("data"):
+        resume_snapshot = {"filename": resume.get("filename") or "resume.pdf", "data": resume["data"]}
+    else:
+        try:
+            import base64
+            from applicant_resume_generator import generate_applicant_resume_pdf
+            temp_app = models.JobApplication(
+                student_profile=profile,
+                job=job,
+                screening_responses=app_req.screening_responses or {},
+                cover_letter=cover_letter,
+            )
+            pdf_bytes = generate_applicant_resume_pdf(temp_app)
+            cand_name = re.sub(r'[^A-Za-z0-9_ -]', '', current_user.full_name or '').strip().replace(' ', '_')
+            resume_snapshot = {
+                "filename": f"{cand_name or 'applicant'}_resume.pdf",
+                "data": base64.b64encode(pdf_bytes).decode("utf-8")
+            }
+        except Exception as e:
+            logger.error(f"Failed to auto-generate snapshot on apply: {e}")
+
     application = models.JobApplication(
         student_profile_id=profile.id,
         job_id=job.id,
@@ -2110,7 +2309,7 @@ def apply_for_job(app_req: schemas.JobApplicationCreate, db: Session = Depends(g
         cover_letter=cover_letter,
         screening_responses=app_req.screening_responses or {},
         # Keep the resume as it was when applying, even if the profile resume changes later.
-        resume_snapshot={"filename": resume.get("filename") or "resume.pdf", "data": resume["data"]} if resume.get("data") else None,
+        resume_snapshot=resume_snapshot,
     )
     db.add(application)
     db.commit()

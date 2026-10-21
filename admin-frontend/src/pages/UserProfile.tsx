@@ -3,11 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { 
   ArrowLeft, User, Phone, Mail, MapPin, Target, Briefcase, 
-  GraduationCap, Stethoscope, Download, Eye, Link, 
+  GraduationCap, Stethoscope, Link, 
   Globe, CheckCircle, FileText, Calendar, Clock, Star,
   Check, X, FileCheck, Award, Folder, Trophy, Heart
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { 
+  AiExtractionPreview, 
+  UploadedDocumentDetails, 
+  AiResumeModal, 
+  AiReportViewer 
+} from '../components/ResumeViewer';
+import EditUserProfileModal from '../components/EditUserProfileModal';
 
 const UserProfile = () => {
   const { id } = useParams();
@@ -18,6 +25,8 @@ const UserProfile = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [isSuspending, setIsSuspending] = useState(false);
+  const [selectedAiResume, setSelectedAiResume] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     fetchUserDetails();
@@ -116,9 +125,21 @@ const UserProfile = () => {
     return acc;
   }, {}));
 
+  const formatStatus = (status: string) => {
+    if (!status) return '';
+    const s = status.toLowerCase();
+    if (s === 'sent_to_doctor') return 'Send to Doctor';
+    return s
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   const getStatusColor = (status: string) => {
+    if (!status) return 'bg-gray-100 text-gray-800 border-gray-200';
     status = status.toLowerCase();
-    if (['applied', 'in_progress', 'scheduled'].includes(status)) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    if (['sent_to_doctor', 'confirmed'].includes(status)) return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (['applied', 'in_progress', 'scheduled', 'pending'].includes(status)) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     if (['accepted', 'completed', 'hired', 'passed'].includes(status)) return 'bg-green-100 text-green-800 border-green-200';
     if (['rejected', 'cancelled', 'failed'].includes(status)) return 'bg-red-100 text-red-800 border-red-200';
     return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -282,7 +303,12 @@ const UserProfile = () => {
 
             <div className="pt-6 border-t border-gray-100 mt-6 space-y-2">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Admin Actions</p>
-              <button onClick={() => showToast("Feature is coming soon.", "info")} className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200 transition">Edit Profile Data</button>
+              <button 
+                onClick={() => setShowEditModal(true)} 
+                className="w-full py-2 bg-primaryBrand/10 text-primaryBrand border border-primaryBrand/20 rounded-lg text-sm font-semibold hover:bg-primaryBrand hover:text-white transition shadow-sm"
+              >
+                Edit Profile Data
+              </button>
               <button onClick={() => setShowSuspendModal(true)} className={`w-full py-2 rounded-lg text-sm font-semibold transition ${user.is_active ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>
                 {user.is_active ? 'Suspend User' : 'Activate User'}
               </button>
@@ -465,13 +491,18 @@ const UserProfile = () => {
                                 <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${sess.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{sess.status}</span>
                                 <p className="text-sm text-gray-500 mt-2">Started on {new Date(sess.created_datetime).toLocaleDateString()}</p>
                               </div>
-                              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition shadow-sm">View AI Resume</button>
+                              <button 
+                                onClick={() => setSelectedAiResume(sess)}
+                                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition shadow-sm"
+                              >
+                                View AI Resume
+                              </button>
                             </div>
                             {sess.extracted_data && Object.keys(sess.extracted_data).length > 0 && (
-                              <div className="bg-white p-4 rounded-lg border border-purple-100 text-sm text-gray-700">
-                                <p className="font-semibold mb-2">AI Extraction Preview:</p>
-                                <pre className="whitespace-pre-wrap font-mono text-xs overflow-hidden max-h-32 text-gray-500">{JSON.stringify(sess.extracted_data, null, 2)}</pre>
-                              </div>
+                              <AiExtractionPreview 
+                                data={sess.extracted_data} 
+                                onOpenFullResume={() => setSelectedAiResume(sess)} 
+                              />
                             )}
                           </div>
                         ))}
@@ -491,25 +522,11 @@ const UserProfile = () => {
                         <p className="text-gray-500 text-sm">No original resume PDF has been uploaded.</p>
                       </div>
                     ) : (
-                      <div className="border border-blue-100 bg-blue-50/30 rounded-xl p-6">
-                        <div className="flex items-center gap-4 mb-6">
-                          <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
-                            <Briefcase size={28} />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-lg font-bold text-gray-900">{user.resume_data.filename || 'Uploaded_Resume.pdf'}</h3>
-                            <p className="text-sm text-gray-500">Stored in raw format.</p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <button onClick={handleViewResume} className="p-2.5 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 hover:text-blue-600 transition shadow-sm" title="Preview"><Eye size={20} /></button>
-                            <button onClick={handleDownloadResume} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition shadow-sm"><Download size={16} /> Download</button>
-                          </div>
-                        </div>
-                        <div className="bg-white p-4 rounded-lg border border-blue-100 text-sm text-gray-700">
-                          <p className="font-semibold mb-2">Raw Parsed JSON (Debug View):</p>
-                          <pre className="whitespace-pre-wrap font-mono text-xs overflow-y-auto max-h-40 text-gray-500">{JSON.stringify(user.resume_data, null, 2)}</pre>
-                        </div>
-                      </div>
+                      <UploadedDocumentDetails
+                        resumeData={user.resume_data}
+                        onPreview={handleViewResume}
+                        onDownload={handleDownloadResume}
+                      />
                     )}
                   </div>
 
@@ -530,7 +547,7 @@ const UserProfile = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-1">
                             <h4 className="text-lg font-bold text-primaryText group-hover:text-primaryBrand transition">{app.job?.title || 'Unknown Job'}</h4>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide border ${getStatusColor(app.status)}`}>{app.status}</span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${getStatusColor(app.status)}`}>{formatStatus(app.status)}</span>
                           </div>
                           <p className="text-sm text-secondaryText flex items-center gap-2">
                             <span className="font-medium text-gray-700">{app.job?.company_name || 'Unknown Company'}</span> 
@@ -601,9 +618,7 @@ const UserProfile = () => {
                             <div className="bg-purple-50/50 p-4 border-t border-purple-100 text-sm text-gray-700">
                               <p className="font-bold text-purple-700 flex items-center gap-1.5 mb-2"><Star size={16}/> AI Performance Insights</p>
                               <div className="pl-5 border-l-2 border-purple-200">
-                                {typeof latest.ai_report === 'string' ? latest.ai_report : (
-                                  <pre className="whitespace-pre-wrap font-mono text-xs">{JSON.stringify(latest.ai_report, null, 2)}</pre>
-                                )}
+                                <AiReportViewer report={latest.ai_report} />
                               </div>
                             </div>
                           )}
@@ -634,8 +649,8 @@ const UserProfile = () => {
                             <p className="text-sm text-secondaryText flex items-center gap-1"><Calendar size={14}/> {apt.appointment_date} at <Clock size={14} className="ml-2"/> {apt.appointment_time}</p>
                           </div>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${getStatusColor(apt.status)}`}>
-                          {apt.status}
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(apt.status)}`}>
+                          {formatStatus(apt.status)}
                         </span>
                       </div>
                     ))
@@ -684,6 +699,21 @@ const UserProfile = () => {
           </div>
         </div>
       )}
+
+      {/* AI Resume Document Modal */}
+      <AiResumeModal 
+        session={selectedAiResume} 
+        isOpen={Boolean(selectedAiResume)} 
+        onClose={() => setSelectedAiResume(null)} 
+      />
+
+      {/* Edit User Profile Modal */}
+      <EditUserProfileModal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        user={user}
+        onSuccess={fetchUserDetails}
+      />
     </div>
   );
 };
