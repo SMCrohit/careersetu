@@ -2,11 +2,77 @@ import io
 import html
 import base64
 from typing import Optional
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
-from reportlab.lib.units import inch
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+    from reportlab.lib.units import inch
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+def _generate_fallback_pdf(app) -> bytes:
+    prof = getattr(app, "student_profile", None)
+    user = prof.user if prof else None
+    job = getattr(app, "job", None)
+    name = (user.full_name if user and user.full_name else "Applicant").strip()
+    email = (user.email if user and user.email else (prof.email if prof else "N/A")).strip()
+    phone = (getattr(user, "mobile_number", None) or (prof.whatsapp_number if prof else "N/A") or "N/A").strip()
+    title = (job.title if job and job.title else "Professional").strip()
+    company = (job.company_name if job and job.company_name else "Company").strip()
+    
+    clean_name = name.replace("(", "").replace(")", "")
+    clean_email = email.replace("(", "").replace(")", "")
+    clean_phone = phone.replace("(", "").replace(")", "")
+    clean_title = title.replace("(", "").replace(")", "")
+    clean_company = company.replace("(", "").replace(")", "")
+
+    stream_lines = [
+        "BT",
+        "/F1 18 Tf",
+        "50 720 Td",
+        f"({clean_name}) Tj",
+        "/F1 12 Tf",
+        "0 -24 Td",
+        f"({clean_title} - {clean_company}) Tj",
+        "/F1 10 Tf",
+        "0 -20 Td",
+        f"(Contact: {clean_email} | {clean_phone}) Tj",
+        "0 -30 Td",
+        "/F1 12 Tf",
+        "(APPLICANT PROFILE) Tj",
+        "/F1 10 Tf",
+        "0 -18 Td",
+        f"(Application submitted for {clean_title} position at {clean_company}.) Tj",
+        "ET"
+    ]
+    stream = "\n".join(stream_lines).encode("latin-1", "replace")
+    stream_len = len(stream)
+    
+    return f"""%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
+4 0 obj << /Length {stream_len} >>
+stream
+""".encode("latin-1") + stream + b"""
+endstream
+endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000056 00000 n 
+0000000111 00000 n 
+0000000224 00000 n 
+0000000325 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+390
+%%EOF
+"""
 
 def _escape(text) -> str:
     if text is None:
@@ -19,6 +85,9 @@ def generate_applicant_resume_pdf(app) -> bytes:
     Uses applicant profile data, contact details, education, skills, work experience,
     and application screening/cover letter details.
     """
+    if not REPORTLAB_AVAILABLE:
+        return _generate_fallback_pdf(app)
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,

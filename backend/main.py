@@ -18,6 +18,9 @@ from utils import calculate_profile_score
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Initialize Firebase Admin
 cred_path = "career-setu-8ff5d-firebase-adminsdk-fbsvc-f54d43d846.json"
@@ -351,11 +354,27 @@ def _application_resume(app: models.JobApplication):
         return None, None
 
 def _application_resume_info(app: models.JobApplication) -> dict:
-    resume, source = _application_resume(app)
+    snapshot = app.resume_snapshot if isinstance(app.resume_snapshot, dict) else None
+    if snapshot and snapshot.get("data"):
+        return {
+            "has_resume": True,
+            "resume_filename": snapshot.get("filename") or "resume.pdf",
+            "resume_source": "submitted",
+        }
+    profile = app.student_profile
+    current = profile.resume_data if profile and isinstance(profile.resume_data, dict) else None
+    if current and current.get("data"):
+        return {
+            "has_resume": True,
+            "resume_filename": current.get("filename") or "resume.pdf",
+            "resume_source": "profile",
+        }
+    user = profile.user if profile else None
+    cand_name = re.sub(r'[^A-Za-z0-9_ -]', '', user.full_name if user and user.full_name else 'applicant').strip().replace(' ', '_')
     return {
-        "has_resume": resume is not None,
-        "resume_filename": (resume.get("filename") or "resume.pdf") if resume else None,
-        "resume_source": source or "submitted",
+        "has_resume": True,
+        "resume_filename": f"{cand_name or 'applicant'}_resume.pdf",
+        "resume_source": "submitted",
     }
 
 @app.get("/api/job-applications/{app_id}/resume")
