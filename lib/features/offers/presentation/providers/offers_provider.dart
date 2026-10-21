@@ -1,13 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/offers_repository.dart';
 import '../../domain/offer_model.dart';
-
 import '../../domain/offer_filter_state.dart';
 
 class OfferFilterNotifier extends Notifier<OfferFilterState> {
   @override
   OfferFilterState build() => OfferFilterState();
   void updateFilters(OfferFilterState filters) => state = filters;
+  void selectCategory(String? category) => state = state.copyWith(category: category, clearCategory: category == null);
+  void selectCity(String? city) => state = state.copyWith(city: city, clearCity: city == null);
+  void selectRedemptionType(String? rt) => state = state.copyWith(redemptionType: rt, clearRedemptionType: rt == null);
+  void setProfessions(List<String> profs) => state = state.copyWith(professions: profs);
+  void setValidityUpto(String? date) => state = state.copyWith(validityUpto: date, clearValidityUpto: date == null);
+  void clearAll() => state = OfferFilterState();
 }
 
 final offerFilterProvider = NotifierProvider<OfferFilterNotifier, OfferFilterState>(() {
@@ -17,6 +22,11 @@ final offerFilterProvider = NotifierProvider<OfferFilterNotifier, OfferFilterSta
 final offerCitiesProvider = FutureProvider<List<String>>((ref) async {
   final repo = ref.read(offersRepositoryProvider);
   return await repo.fetchOfferCities();
+});
+
+final offerProfessionsProvider = FutureProvider<List<String>>((ref) async {
+  final repo = ref.read(offersRepositoryProvider);
+  return await repo.fetchOfferProfessions();
 });
 
 class OffersNotifier extends AsyncNotifier<List<OfferModel>> {
@@ -33,7 +43,15 @@ class OffersNotifier extends AsyncNotifier<List<OfferModel>> {
     _skip = 0;
     final repo = ref.read(offersRepositoryProvider);
     final filters = ref.watch(offerFilterProvider);
-    final offers = await repo.fetchOffers(city: filters.city, category: filters.category, skip: _skip, limit: _limit);
+    final offers = await repo.fetchOffers(
+      city: filters.city, 
+      category: filters.category, 
+      redemptionType: filters.redemptionType,
+      professions: filters.professions,
+      validityUpto: filters.validityUpto,
+      skip: _skip, 
+      limit: _limit,
+    );
     _hasMore = offers.length == _limit;
     return offers;
   }
@@ -46,7 +64,15 @@ class OffersNotifier extends AsyncNotifier<List<OfferModel>> {
       _skip += _limit;
       final repo = ref.read(offersRepositoryProvider);
       final filters = ref.read(offerFilterProvider);
-      final newOffers = await repo.fetchOffers(city: filters.city, category: filters.category, skip: _skip, limit: _limit);
+      final newOffers = await repo.fetchOffers(
+        city: filters.city, 
+        category: filters.category, 
+        redemptionType: filters.redemptionType,
+        professions: filters.professions,
+        validityUpto: filters.validityUpto,
+        skip: _skip, 
+        limit: _limit,
+      );
       if (newOffers.isEmpty || newOffers.length < _limit) {
         _hasMore = false;
       }
@@ -66,7 +92,7 @@ final offersProvider = AsyncNotifierProvider<OffersNotifier, List<OfferModel>>((
 
 class ClaimedOffersListNotifier extends AsyncNotifier<List<ClaimedOfferModel>> {
   int _skip = 0;
-  final int _limit = 20;
+  final int _limit = 30;
   bool _hasMore = true;
   bool _isFetchingMore = false;
   
@@ -102,12 +128,18 @@ class ClaimedOffersListNotifier extends AsyncNotifier<List<ClaimedOfferModel>> {
     }
   }
 
-  Future<void> claim(String offerId) async {
+  Future<Map<String, dynamic>> claim(String offerId, {Map<String, dynamic>? inquiryDetails}) async {
     final repo = ref.read(offersRepositoryProvider);
-    await repo.claimOffer(offerId);
+    final result = await repo.claimOffer(offerId, inquiryDetails: inquiryDetails);
     ref.invalidateSelf();
-    ref.invalidate(offersProvider); // Refresh the local offers list
-    await future;
+    ref.invalidate(offersProvider); // Refresh active offers to hide claimed offer immediately
+    return result;
+  }
+
+  Future<void> redeem(String claimedId) async {
+    final repo = ref.read(offersRepositoryProvider);
+    await repo.redeemClaimedOffer(claimedId);
+    ref.invalidateSelf();
   }
 }
 

@@ -11,14 +11,25 @@ import 'features/home/presentation/screens/main_navigation.dart';
 import 'features/profile/presentation/screens/profile_screen.dart';
 import 'features/notifications/presentation/screens/notifications_screen.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
-import 'features/auth/presentation/screens/splash_screen.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'core/navigation/navigation_service.dart';
+import 'features/auth/presentation/screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
+  );
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.white,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
   );
   runApp(const ProviderScope(child: CareerSetuApp()));
 }
@@ -29,6 +40,8 @@ class CareerSetuApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NavigationService.navigatorKey,
+      scaffoldMessengerKey: NavigationService.messengerKey,
       title: 'Career Setu',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

@@ -242,16 +242,49 @@ class Offer(BaseModel):
     title = Column(String, index=True)
     subtitle = Column(String)
     description = Column(Text)
-    action = Column(String)
-    type = Column(String)
+    action = Column(String, default="Claim")
+    type = Column(String)  # Gyms & Fitness, Banks & Finance, Coaching & Classes, Books & Stationery, Food & Cafes, Tech & Tools
     city = Column(String, nullable=True, index=True)
     discount_code = Column(String, nullable=True)
     valid_until = Column(DateTime, nullable=True)
+
+    # Enhanced partner & redemption fields
+    merchant_name = Column(String, nullable=True)
+    merchant_logo = Column(String, nullable=True)
+    merchant_address = Column(String, nullable=True)
+    partner_phone = Column(String, nullable=True)
+    external_url = Column(String, nullable=True)
+    redemption_type = Column(String, default="generic_code")  # in_store_pass, unique_code_pool, generic_code, bank_lead, affiliate_link
+    terms_and_conditions = Column(Text, nullable=True)
+    target_stream = Column(String, default="All")
+    target_professions = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    min_resume_score = Column(Integer, default=0)
+    total_quota = Column(Integer, nullable=True)
+    claimed_count = Column(Integer, default=0)
+
+    voucher_codes = relationship("VoucherCodePool", back_populates="offer", cascade="all, delete-orphan")
+
+class VoucherCodePool(BaseModel):
+    __tablename__ = "voucher_code_pools"
+    offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id", ondelete="CASCADE"), nullable=False, index=True)
+    code = Column(String, nullable=False, index=True)
+    is_claimed = Column(Boolean, default=False, index=True)
+    claimed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+
+    offer = relationship("Offer", back_populates="voucher_codes")
+    claimed_by = relationship("User")
 
 class ClaimedOffer(BaseModel):
     __tablename__ = "claimed_offers"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id"))
+    voucher_code = Column(String, nullable=True)
+    status = Column(String, default="active")  # active, redeemed, expired
+    redeemed_at = Column(DateTime, nullable=True)
+    inquiry_details = Column(JSON, nullable=True)
     
     user = relationship("User")
     offer = relationship("Offer")

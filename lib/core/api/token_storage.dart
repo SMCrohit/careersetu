@@ -4,10 +4,22 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class TokenStorage {
   static const _storage = FlutterSecureStorage();
   static const _tokenKey = 'jwt_token';
+  static const _refreshTokenKey = 'jwt_refresh_token';
   static const _userKey = 'user_data';
 
   static Future<void> saveToken(String token) async {
     await _storage.write(key: _tokenKey, value: token);
+  }
+
+  static Future<void> saveRefreshToken(String refreshToken) async {
+    await _storage.write(key: _refreshTokenKey, value: refreshToken);
+  }
+
+  static Future<void> saveTokens({required String accessToken, String? refreshToken}) async {
+    await _storage.write(key: _tokenKey, value: accessToken);
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      await _storage.write(key: _refreshTokenKey, value: refreshToken);
+    }
   }
 
   static Future<void> saveUser(Map<String, dynamic> userJson) async {
@@ -16,6 +28,10 @@ class TokenStorage {
 
   static Future<String?> getToken() async {
     return await _storage.read(key: _tokenKey);
+  }
+
+  static Future<String?> getRefreshToken() async {
+    return await _storage.read(key: _refreshTokenKey);
   }
 
   static Future<Map<String, dynamic>?> getUser() async {
@@ -32,6 +48,7 @@ class TokenStorage {
 
   static Future<void> deleteToken() async {
     await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _refreshTokenKey);
     await _storage.delete(key: _userKey);
   }
 }

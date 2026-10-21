@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/app_ui.dart';
 import '../../../../core/widgets/custom_toast.dart';
+import '../../../../core/constants/app_urls.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -34,11 +35,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _launchURL(String urlString) async {
     try {
-      if (!await launchUrl(Uri.parse(urlString), mode: LaunchMode.inAppWebView) && mounted) {
-        CustomToast.showError(context, 'Could not open the page.');
+      final uri = Uri.parse(urlString);
+      final opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!opened) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (_) {
-      if (mounted) CustomToast.showError(context, 'Could not open the page.');
+      if (mounted) CustomToast.showError(context, 'Could not open: $urlString');
     }
   }
 
@@ -72,8 +75,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _header(),
             _sectionTitle('General'),
             _group([
-              _tile(Icons.privacy_tip_outlined, 'Privacy Policy', onTap: () => _launchURL('https://www.google.com')),
-              _tile(Icons.article_outlined, 'Terms & Conditions', onTap: () => _launchURL('https://www.google.com')),
+              _tile(
+                Icons.privacy_tip_outlined,
+                'Privacy Policy',
+                onTap: () => _launchURL(AppUrls.privacyPolicyUrl),
+              ),
+              _tile(
+                Icons.article_outlined,
+                'Terms & Conditions',
+                onTap: () => _launchURL(AppUrls.termsAndConditionsUrl),
+              ),
             ]),
             _sectionTitle('Support'),
             _group([
@@ -94,13 +105,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       decoration: BoxDecoration(
         gradient: AppUi.heroGradient,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: const Color(0xFF1E3A8A).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))],
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          )
+        ],
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(14)),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: const Icon(Icons.school_rounded, color: Colors.white, size: 28),
           ),
           const SizedBox(width: 14),
@@ -110,7 +130,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Text('Career Setu', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('Version $_appVersion', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13)),
+                Text(
+                  'Version $_appVersion',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                ),
               ],
             ),
           ),

@@ -63,6 +63,17 @@ class AuthRepository {
     }
   }
 
+  Future<Map<String, dynamic>?> refreshToken(String refreshToken) async {
+    try {
+      final response = await _apiClient.post('/auth/refresh', data: {
+        'refresh_token': refreshToken,
+      });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<User?> updateProfileImage(String base64Image) async {
     try {
       final response = await _apiClient.put('/users/profile', data: {

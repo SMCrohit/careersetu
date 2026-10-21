@@ -5,8 +5,8 @@ from uuid import UUID
 
 class ORMBase(BaseModel):
     id: UUID
-    created_datetime: datetime
-    is_active: bool
+    created_datetime: Optional[datetime] = None
+    is_active: Optional[bool] = True
     deleted_datetime: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -297,18 +297,45 @@ class OfferBase(BaseModel):
     title: str
     subtitle: str
     description: str
-    action: str
+    action: str = "Claim"
     type: str
     city: Optional[str] = None
     discount_code: Optional[str] = None
     valid_until: Optional[datetime] = None
+    merchant_name: Optional[str] = None
+    merchant_logo: Optional[str] = None
+    merchant_address: Optional[str] = None
+    partner_phone: Optional[str] = None
+    external_url: Optional[str] = None
+    redemption_type: Optional[str] = "generic_code"
+    terms_and_conditions: Optional[str] = None
+    target_stream: Optional[str] = "All"
+    target_professions: Optional[str] = None
+    pincode: Optional[str] = None
+    state: Optional[str] = None
+    min_resume_score: Optional[int] = 0
+    total_quota: Optional[int] = None
+    claimed_count: Optional[int] = 0
+
+class OfferCreate(OfferBase):
+    voucher_codes: Optional[list[str]] = None
 
 class Offer(OfferBase, ORMBase):
-    pass
+    available_vouchers_count: Optional[int] = None
+
+class ClaimOfferRequest(BaseModel):
+    inquiry_details: Optional[dict] = None
+
+class VoucherCodeUpload(BaseModel):
+    codes: list[str]
 
 class ClaimedOfferBase(BaseModel):
     user_id: UUID
     offer_id: UUID
+    voucher_code: Optional[str] = None
+    status: Optional[str] = "active"
+    redeemed_at: Optional[datetime] = None
+    inquiry_details: Optional[dict] = None
 
 class ClaimedOfferResponse(ClaimedOfferBase, ORMBase):
     offer: Optional[Offer] = None
@@ -421,10 +448,14 @@ class FirebaseSignupRequest(BaseModel):
     id_token: str
     user_details: UserBase
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str
-    user: User
+    refresh_token: Optional[str] = None
+    token_type: str = "bearer"
+    user: Optional[User] = None
     message: Optional[str] = None
 
 class BannerBase(BaseModel):

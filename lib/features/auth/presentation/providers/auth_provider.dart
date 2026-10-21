@@ -145,7 +145,10 @@ class AuthNotifier extends Notifier<AuthState> {
       final data = await repo.firebaseLogin(idToken);
       
       if (data != null && data['access_token'] != null) {
-        await TokenStorage.saveToken(data['access_token']);
+        await TokenStorage.saveTokens(
+          accessToken: data['access_token'],
+          refreshToken: data['refresh_token'],
+        );
         await TokenStorage.saveUser(data['user']);
         final user = User.fromJson(data['user']);
         state = state.copyWith(isLoading: false, currentUser: user);
@@ -179,7 +182,10 @@ class AuthNotifier extends Notifier<AuthState> {
       final data = await repo.firebaseSignup(idToken, signupUser);
       
       if (data != null && data['access_token'] != null) {
-        await TokenStorage.saveToken(data['access_token']);
+        await TokenStorage.saveTokens(
+          accessToken: data['access_token'],
+          refreshToken: data['refresh_token'],
+        );
         await TokenStorage.saveUser(data['user']);
         final user = User.fromJson(data['user']);
         state = state.copyWith(isLoading: false, currentUser: user);
@@ -200,7 +206,10 @@ class AuthNotifier extends Notifier<AuthState> {
       final repo = ref.read(authRepositoryProvider);
       final data = await repo.signup(user);
       if (data != null && data['access_token'] != null) {
-         await TokenStorage.saveToken(data['access_token']);
+         await TokenStorage.saveTokens(
+           accessToken: data['access_token'],
+           refreshToken: data['refresh_token'],
+         );
          await TokenStorage.saveUser(data['user']);
          final newUser = User.fromJson(data['user']);
          state = state.copyWith(isLoading: false, currentUser: newUser);
@@ -217,7 +226,14 @@ class AuthNotifier extends Notifier<AuthState> {
 
   Future<void> logout() async {
     await TokenStorage.deleteToken();
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
     state = AuthState(isInitialCheckDone: true);
+  }
+
+  Future<void> handleSessionExpired() async {
+    await logout();
   }
 
   Future<bool> updateProfileImage(String base64Image) async {

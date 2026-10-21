@@ -18,6 +18,8 @@ import AppliedJobs from './pages/AppliedJobs';
 import AttemptedTests from './pages/AttemptedTests';
 import ClaimedOffers from './pages/ClaimedOffers';
 import ProfessionalReviews from './pages/ProfessionalReviews';
+import TermsAndConditions from './pages/TermsAndConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import { ToastProvider } from './context/ToastContext';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -39,6 +41,8 @@ function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/terms" element={<TermsAndConditions />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
           <Route path="/jobs/applied" element={<ProtectedRoute><AppliedJobs /></ProtectedRoute>} />

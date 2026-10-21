@@ -115,9 +115,9 @@ class ProfileScreen extends ConsumerWidget {
                             height: 110,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: Border.all(color: const Color(0xFF0ea5e9).withOpacity(0.5), width: 3),
+                              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.5), width: 3),
                               boxShadow: [
-                                BoxShadow(color: const Color(0xFF0ea5e9).withOpacity(0.3), blurRadius: 20, spreadRadius: 5)
+                                BoxShadow(color: const Color(0xFF10B981).withValues(alpha: 0.35), blurRadius: 20, spreadRadius: 4)
                               ],
                               color: const Color(0xFF0F172A),
                             ),
@@ -130,7 +130,7 @@ class ProfileScreen extends ConsumerWidget {
                                   child: CircularProgressIndicator(
                                     value: user.profileCompletionScore / 100.0,
                                     backgroundColor: Colors.transparent,
-                                    color: const Color(0xFF0ea5e9),
+                                    color: const Color(0xFF10B981),
                                     strokeWidth: 4,
                                   ),
                                 ),
@@ -159,24 +159,31 @@ class ProfileScreen extends ConsumerWidget {
                             children: [
                               Text(
                                 user.email.isEmpty ? 'Add Email' : user.email,
-                                style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.8)),
+                                style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.8)),
                               ),
                               const SizedBox(width: 8),
-                              Icon(Icons.edit_outlined, size: 16, color: Colors.white.withOpacity(0.8)),
+                              Icon(Icons.edit_outlined, size: 16, color: Colors.white.withValues(alpha: 0.8)),
                             ],
                           ),
                         ),
                         const SizedBox(height: 12),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0ea5e9).withOpacity(0.2),
+                            color: const Color(0xFF10B981).withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF0ea5e9).withOpacity(0.5)),
+                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.55)),
                           ),
-                          child: Text(
-                            'Profile Completion: ${user.profileCompletionScore}%',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF34D399)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Profile Completion: ${user.profileCompletionScore}%',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -202,7 +209,7 @@ class ProfileScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _buildSectionHeader('BASIC & PERSONAL INFO'),
+                      _buildSectionHeader('BASIC & PERSONAL INFO', earned: _getBasicInfoPoints(user), total: 30),
                       _buildListTile(context, 'Mobile Number', user.mobileNumber.isNotEmpty ? user.mobileNumber : 'Add Mobile Number', Icons.phone, onTap: () => _showEditBottomSheet(context, 'mobile_number', 'Mobile Number', user.mobileNumber)),
                       _buildListTile(context, 'WhatsApp Number', user.whatsappNumber.isNotEmpty ? user.whatsappNumber : 'Add WhatsApp', Icons.chat, onTap: () => _showEditBottomSheet(context, 'whatsapp_number', 'WhatsApp Number', user.whatsappNumber)),
                       _buildListTile(context, 'Email', user.email.isNotEmpty ? user.email : 'Add Email', Icons.email, onTap: () => _showEditBottomSheet(context, 'email', 'Email', user.email)),
@@ -212,7 +219,7 @@ class ProfileScreen extends ConsumerWidget {
                       _buildListTile(context, 'Location (City, State, Pincode)', [user.city, user.state, user.pincode].where((e) => e.isNotEmpty).join(', ').isNotEmpty ? [user.city, user.state, user.pincode].where((e) => e.isNotEmpty).join(', ') : 'Add Location', Icons.location_city, onTap: () => _showEditBottomSheet(context, 'city', 'Location', user.city)),
                       _buildListTile(context, 'Full Address', user.address.isNotEmpty ? user.address : 'Add Full Address', Icons.home, onTap: () => _showEditBottomSheet(context, 'address', 'Address', user.address)),
                       
-                      _buildSectionHeader('PROFESSIONAL OVERVIEW'),
+                      _buildSectionHeader('PROFESSIONAL OVERVIEW', earned: _getProfessionalOverviewPoints(user), total: 20),
                       _buildListTile(context, 'Career Goal', user.goal.isNotEmpty ? user.goal.toUpperCase() : 'Add Goal', Icons.flag, onTap: () => _showEditBottomSheet(context, 'goal', 'Career Goal', user.goal)),
                       _buildListTile(context, 'Professional Summary', user.summary.isNotEmpty ? user.summary : 'Add Summary', Icons.text_snippet, onTap: () => _showEditBottomSheet(context, 'summary', 'Professional Summary', user.summary)),
                       _buildListTile(context, 'Years of Experience', '${user.yearsOfExperience} Years', Icons.work, onTap: () => _showEditBottomSheet(context, 'years_of_experience', 'Years of Experience', user.yearsOfExperience.toString())),
@@ -238,23 +245,23 @@ class ProfileScreen extends ConsumerWidget {
                         onTap: () => _showNoticePeriodBottomSheet(context, ref, 'notice_period_days', 'Notice Period', user.noticePeriodDays)
                       ),
 
-                      _buildSectionHeader('DIGITAL PRESENCE'),
+                      _buildSectionHeader('DIGITAL PRESENCE', earned: _getDigitalPresencePoints(user), total: 10),
                       _buildListTile(context, 'LinkedIn Profile', user.linkedinUrl.isNotEmpty ? user.linkedinUrl : 'Add LinkedIn', Icons.link, onTap: () => _showEditBottomSheet(context, 'linkedin_url', 'LinkedIn URL', user.linkedinUrl)),
                       _buildListTile(context, 'GitHub Profile', user.githubUrl.isNotEmpty ? user.githubUrl : 'Add GitHub', Icons.code, onTap: () => _showEditBottomSheet(context, 'github_url', 'GitHub URL', user.githubUrl)),
                       _buildListTile(context, 'Portfolio URL', user.portfolioUrl.isNotEmpty ? user.portfolioUrl : 'Add Portfolio', Icons.web, onTap: () => _showEditBottomSheet(context, 'portfolio_url', 'Portfolio URL', user.portfolioUrl)),
 
-                      _buildSectionHeader('SKILLS & LANGUAGES'),
+                      _buildSectionHeader('SKILLS & LANGUAGES', earned: _getSkillsLanguagesPoints(user), total: 10),
                       _buildListTile(context, 'Skills', user.skills?.isNotEmpty == true ? '${user.skills!.length} Skills Added' : 'Add Skills', Icons.lightbulb, onTap: () => _showChipBottomSheet(context, 'skills', 'Skills', user.skills ?? [])),
                       _buildListTile(context, 'Languages', user.languages?.isNotEmpty == true ? '${user.languages!.length} Languages Added' : 'Add Languages', Icons.language, onTap: () => _showChipBottomSheet(context, 'languages', 'Languages', user.languages ?? [])),
 
-                      _buildSectionHeader('EXPERIENCE & EDUCATION'),
+                      _buildSectionHeader('EXPERIENCE & EDUCATION', earned: _getExperienceEducationPoints(user), total: 20),
                       _buildListTile(context, 'Work Experience', user.workExperience?.isNotEmpty == true ? '${user.workExperience!.length} Roles Added' : 'Add Work Experience', Icons.business, onTap: () => _showComplexListBottomSheet(context, 'work_experience', 'Work Experience', user.workExperience ?? [])),
                       _buildListTile(context, 'Education History', user.educationHistory?.isNotEmpty == true ? '${user.educationHistory!.length} Degrees Added' : 'Add Education', Icons.school, onTap: () => _showComplexListBottomSheet(context, 'education_history', 'Education', user.educationHistory ?? [])),
                       _buildListTile(context, 'Projects', user.projects?.isNotEmpty == true ? '${user.projects!.length} Projects Added' : 'Add Projects', Icons.integration_instructions, onTap: () => _showComplexListBottomSheet(context, 'projects', 'Projects', user.projects ?? [])),
                       _buildListTile(context, 'Certifications', user.certifications?.isNotEmpty == true ? '${user.certifications!.length} Certifications' : 'Add Certifications', Icons.workspace_premium, onTap: () => _showComplexListBottomSheet(context, 'certifications', 'Certifications', user.certifications ?? [])),
                       _buildListTile(context, 'Achievements', user.achievements?.isNotEmpty == true ? '${user.achievements!.length} Achievements' : 'Add Achievements', Icons.emoji_events, onTap: () => _showComplexListBottomSheet(context, 'achievements', 'Achievements', user.achievements ?? [])),
                       
-                      _buildSectionHeader('OTHER DETAILS'),
+                      _buildSectionHeader('OTHER DETAILS', earned: _getOtherDetailsPoints(user), total: 10),
                       _buildListTile(context, 'Hobbies', user.hobbies?.isNotEmpty == true ? '${user.hobbies!.length} Hobbies Added' : 'Add Hobbies', Icons.sports_esports, onTap: () => _showChipBottomSheet(context, 'hobbies', 'Hobbies', user.hobbies ?? [])),
                       _buildListTile(context, 'How did you hear about us?', user.acquisitionSource.isNotEmpty ? user.acquisitionSource : 'Select Source', Icons.campaign, onTap: () => _showEditBottomSheet(context, 'acquisition_source', 'Acquisition Source', user.acquisitionSource)),
 
@@ -277,7 +284,7 @@ class ProfileScreen extends ConsumerWidget {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))
                           ],
                         ),
                         child: InkWell(
@@ -392,17 +399,111 @@ class ProfileScreen extends ConsumerWidget {
   }
 
 
-  Widget _buildSectionHeader(String title) {
+  int _getBasicInfoPoints(User user) {
+    int pts = 0;
+    if (user.profileImageUrl != null && user.profileImageUrl!.isNotEmpty) pts += 5;
+    if (user.fullName.trim().isNotEmpty && user.fullName != 'null') pts += 5;
+    if (user.mobileNumber.trim().isNotEmpty) pts += 4;
+    if (user.whatsappNumber.trim().isNotEmpty) pts += 4;
+    if (user.email.trim().isNotEmpty) pts += 4;
+    if (user.dob != null && user.dob!.trim().isNotEmpty) pts += 2;
+    if (user.gender.trim().isNotEmpty) pts += 2;
+    if ([user.city, user.state, user.pincode].any((e) => e.trim().isNotEmpty)) pts += 2;
+    if (user.address.trim().isNotEmpty) pts += 2;
+    return pts;
+  }
+
+  int _getProfessionalOverviewPoints(User user) {
+    int pts = 0;
+    if (user.goal.trim().isNotEmpty) pts += 5;
+    if (user.summary.trim().isNotEmpty) pts += 5;
+    if (user.yearsOfExperience > 0) pts += 3;
+    if (user.currentSalary != null && user.currentSalary! > 0) pts += 3;
+    if (user.expectedSalary != null && user.expectedSalary! > 0) pts += 2;
+    if (user.noticePeriodDays != null) pts += 2;
+    return pts;
+  }
+
+  int _getDigitalPresencePoints(User user) {
+    int pts = 0;
+    if (user.linkedinUrl.trim().isNotEmpty) pts += 4;
+    if (user.githubUrl.trim().isNotEmpty) pts += 3;
+    if (user.portfolioUrl.trim().isNotEmpty) pts += 3;
+    return pts;
+  }
+
+  int _getSkillsLanguagesPoints(User user) {
+    int pts = 0;
+    if (user.skills != null && user.skills!.isNotEmpty) pts += 7;
+    if (user.languages != null && user.languages!.isNotEmpty) pts += 3;
+    return pts;
+  }
+
+  int _getExperienceEducationPoints(User user) {
+    int pts = 0;
+    if (user.workExperience != null && user.workExperience!.isNotEmpty) pts += 6;
+    if (user.educationHistory != null && user.educationHistory!.isNotEmpty) pts += 6;
+    if (user.projects != null && user.projects!.isNotEmpty) pts += 4;
+    if (user.certifications != null && user.certifications!.isNotEmpty) pts += 4;
+    return pts;
+  }
+
+  int _getOtherDetailsPoints(User user) {
+    int pts = 0;
+    if (user.achievements != null && user.achievements!.isNotEmpty) pts += 2;
+    if (user.hobbies != null && user.hobbies!.isNotEmpty) pts += 2;
+    if (user.resumeData != null && user.resumeData!.isNotEmpty) pts += 6;
+    return pts;
+  }
+
+  Widget _buildSectionHeader(String title, {int? earned, int? total}) {
+    final hasPoints = earned != null && total != null;
+    final isCompleted = hasPoints && earned >= total;
+
     return Padding(
-      padding: const EdgeInsets.only(top: 24, bottom: 8, left: 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF0F172A),
-          letterSpacing: 0.5,
-        ),
+      padding: const EdgeInsets.only(top: 24, bottom: 8, left: 4, right: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0F172A),
+              letterSpacing: 0.5,
+            ),
+          ),
+          if (hasPoints)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isCompleted ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isCompleted ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isCompleted) ...[
+                    const Icon(Icons.check_circle_rounded, size: 13, color: Color(0xFF059669)),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    isCompleted ? '$total / $total pts completed' : '$earned of $total pts completed',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isCompleted ? const Color(0xFF059669) : const Color(0xFF475569),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -415,7 +516,7 @@ class ProfileScreen extends ConsumerWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
@@ -804,9 +905,9 @@ class _ResumeBottomSheetState extends ConsumerState<ResumeBottomSheet> {
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppUi.accent.withOpacity(0.5), width: 1.4),
+                      border: Border.all(color: AppUi.accent.withValues(alpha: 0.5), width: 1.4),
                     ),
                     child: Column(
                       children: [

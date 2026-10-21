@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'token_storage.dart';
+import '../navigation/navigation_service.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -22,7 +24,7 @@ class ApiClient {
   static String get baseUrl {
     return kReleaseMode 
         ? 'https://careersetu-smc.vercel.app/api' 
-        : (dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.5:8000/api');
+        : (dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.11:8000/api');
   }
 
   ApiClient() {
@@ -39,7 +41,7 @@ class ApiClient {
     );
 
     _dio.interceptors.add(
-      InterceptorsWrapper(
+      QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
           final token = await TokenStorage.getToken();
           if (token != null) {
@@ -48,18 +50,112 @@ class ApiClient {
           return handler.next(options);
         },
         onResponse: (response, handler) {
-          // You can log responses or handle generic success states here if needed
           return handler.next(response);
         },
         onError: (DioException e, handler) async {
-          if (e.response?.statusCode == 401) {
+          final is401 = e.response?.statusCode == 401;
+          final path = e.requestOptions.path;
+          final isAuthEndpoint = path.contains('/auth/verify-otp') ||
+              path.contains('/auth/firebase-login') ||
+              path.contains('/auth/firebase-signup') ||
+              path.contains('/auth/signup') ||
+              path.contains('/auth/refresh');
+
+          if (is401 && !isAuthEndpoint) {
+            try {
+              final newAccessToken = await _attemptTokenRefresh();
+              if (newAccessToken != null) {
+                final options = e.requestOptions;
+                options.headers['Authorization'] = 'Bearer $newAccessToken';
+
+                final retryResponse = await _dio.fetch(options);
+                return handler.resolve(retryResponse);
+              }
+            } catch (_) {
+              // Token refresh failed
+            }
+
+            // Both token refresh and fallback failed: full session expiration
             await TokenStorage.deleteToken();
-            // TODO: Trigger a global logout event if needed
+            try {
+              await FirebaseAuth.instance.signOut();
+            } catch (_) {}
+            NavigationService.handleSessionExpired();
           }
+
           return handler.next(_handleError(e));
         },
       ),
     );
+  }
+
+  Future<String?> _attemptTokenRefresh() async {
+    final refreshDio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+
+    // 1. Try Refresh Token
+    try {
+      final refreshToken = await TokenStorage.getRefreshToken();
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        final resp = await refreshDio.post(
+          '/auth/refresh',
+          data: {'refresh_token': refreshToken},
+        );
+        if (resp.statusCode == 200 && resp.data != null) {
+          final newAccessToken = resp.data['access_token'];
+          final newRefreshToken = resp.data['refresh_token'];
+          if (newAccessToken != null) {
+            await TokenStorage.saveTokens(
+              accessToken: newAccessToken,
+              refreshToken: newRefreshToken,
+            );
+            if (resp.data['user'] != null) {
+              await TokenStorage.saveUser(resp.data['user']);
+            }
+            return newAccessToken as String;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fallback: Firebase ID token auto-refresh
+    try {
+      final fbUser = FirebaseAuth.instance.currentUser;
+      if (fbUser != null) {
+        final idToken = await fbUser.getIdToken(true);
+        if (idToken != null) {
+          final resp = await refreshDio.post(
+            '/auth/firebase-login',
+            data: {'id_token': idToken},
+          );
+          if (resp.statusCode == 200 && resp.data != null) {
+            final newAccessToken = resp.data['access_token'];
+            final newRefreshToken = resp.data['refresh_token'];
+            if (newAccessToken != null) {
+              await TokenStorage.saveTokens(
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+              );
+              if (resp.data['user'] != null) {
+                await TokenStorage.saveUser(resp.data['user']);
+              }
+              return newAccessToken as String;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   DioException _handleError(DioException error) {

@@ -102,10 +102,14 @@ def verify_otp(req: schemas.OTPVerify, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
         
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    sub = user.mobile_number or user.email
     access_token = auth.create_access_token(
-        data={"sub": user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+        data={"sub": sub, "role": "user"}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "user": user}
+    refresh_token = auth.create_refresh_token(
+        data={"sub": sub, "role": "user"}
+    )
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "user": user}
 
 @app.post("/api/auth/signup", response_model=schemas.TokenResponse)
 def signup(req: schemas.UserBase, db: Session = Depends(get_db)):
@@ -119,10 +123,14 @@ def signup(req: schemas.UserBase, db: Session = Depends(get_db)):
     db.refresh(db_user)
     
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    sub = db_user.mobile_number or db_user.email
     access_token = auth.create_access_token(
-        data={"sub": db_user.mobile_number, "role": "user"}, expires_delta=access_token_expires
+        data={"sub": sub, "role": "user"}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "user": db_user}
+    refresh_token = auth.create_refresh_token(
+        data={"sub": sub, "role": "user"}
+    )
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "user": db_user}
 
 @app.post("/api/auth/firebase-login", response_model=schemas.TokenResponse)
 def firebase_login(req: schemas.FirebaseLoginRequest, db: Session = Depends(get_db)):
@@ -131,12 +139,15 @@ def firebase_login(req: schemas.FirebaseLoginRequest, db: Session = Depends(get_
         uid = decoded_token.get("uid")
         phone_number = decoded_token.get('phone_number')
         email = decoded_token.get('email')
+        formatted_number = phone_number.replace("+91", "") if phone_number else None
             
-        user = db.query(models.User).filter(
-            (models.User.firebase_uid == uid) | 
-            (models.User.email == email) | 
-            (models.User.mobile_number == (phone_number.replace("+91", "") if phone_number else None))
-        ).first()
+        user = None
+        if uid:
+            user = db.query(models.User).filter(models.User.firebase_uid == uid).first()
+        if not user and formatted_number:
+            user = db.query(models.User).filter(models.User.mobile_number == formatted_number).first()
+        if not user and email:
+            user = db.query(models.User).filter(models.User.email == email).first()
 
         if not user:
             raise HTTPException(status_code=404, detail="User account not found. Please sign up first.")
@@ -144,15 +155,25 @@ def firebase_login(req: schemas.FirebaseLoginRequest, db: Session = Depends(get_
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact support.")
             
-        if not user.firebase_uid:
+        if not user.firebase_uid and uid:
             user.firebase_uid = uid
             db.commit()
             
         access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        sub = user.mobile_number or user.email
         access_token = auth.create_access_token(
-            data={"sub": user.mobile_number or user.email, "role": user.role}, expires_delta=access_token_expires
+            data={"sub": sub, "role": user.role}, expires_delta=access_token_expires
         )
-        return {"access_token": access_token, "token_type": "bearer", "user": user, "message": "Login successful"}
+        refresh_token = auth.create_refresh_token(
+            data={"sub": sub, "role": user.role}
+        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": user,
+            "message": "Login successful"
+        }
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -178,11 +199,13 @@ def firebase_signup(req: schemas.FirebaseSignupRequest, db: Session = Depends(ge
             
         req.user_details.firebase_uid = uid
         
-        existing_user = db.query(models.User).filter(
-            (models.User.firebase_uid == uid) |
-            (models.User.mobile_number == formatted_number) |
-            (models.User.email == email)
-        ).first()
+        existing_user = None
+        if uid:
+            existing_user = db.query(models.User).filter(models.User.firebase_uid == uid).first()
+        if not existing_user and formatted_number:
+            existing_user = db.query(models.User).filter(models.User.mobile_number == formatted_number).first()
+        if not existing_user and email:
+            existing_user = db.query(models.User).filter(models.User.email == email).first()
         
         if existing_user:
             raise HTTPException(status_code=400, detail="An account with this mobile number or email is already registered.")
@@ -193,16 +216,50 @@ def firebase_signup(req: schemas.FirebaseSignupRequest, db: Session = Depends(ge
         db.refresh(db_user)
         
         access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        sub = db_user.mobile_number or db_user.email
         access_token = auth.create_access_token(
-            data={"sub": db_user.mobile_number or db_user.email, "role": db_user.role}, expires_delta=access_token_expires
+            data={"sub": sub, "role": db_user.role}, expires_delta=access_token_expires
         )
-        return {"access_token": access_token, "token_type": "bearer", "user": db_user, "message": "Account created successfully"}
+        refresh_token = auth.create_refresh_token(
+            data={"sub": sub, "role": db_user.role}
+        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": db_user,
+            "message": "Account created successfully"
+        }
     except HTTPException as e:
         raise e
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=401, detail=f"Registration failed: {str(e)}")
+
+@app.post("/api/auth/refresh", response_model=schemas.TokenResponse)
+def refresh_token(req: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
+    user = auth.verify_refresh_token(req.refresh_token, db)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    sub = user.mobile_number or user.email
+    new_access_token = auth.create_access_token(
+        data={"sub": sub, "role": user.role}
+    )
+    new_refresh_token = auth.create_refresh_token(
+        data={"sub": sub, "role": user.role}
+    )
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "user": user,
+        "message": "Token refreshed successfully"
+    }
 
 # Banners API
 @app.get("/api/banners", response_model=list[schemas.Banner])
@@ -1333,9 +1390,22 @@ def get_offer_cities(db: Session = Depends(get_db)):
         .filter(models.Offer.is_active == True, models.Offer.city.isnot(None), models.Offer.city != '')\
         .distinct()\
         .all()
-    return [city[0] for city in cities if city[0]]
+    cleaned = sorted(list({c[0].strip() for c in cities if c[0] and c[0].strip() and c[0].strip().lower() != 'all'}))
+    return cleaned
 @app.get("/api/offers", response_model=list[schemas.Offer])
-def get_offers(city: Optional[str] = None, category: Optional[str] = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(auth.get_current_user_optional)):
+def get_offers(
+    city: Optional[str] = None, 
+    category: Optional[str] = None, 
+    stream: Optional[str] = None, 
+    profession: Optional[str] = None,
+    professions: Optional[str] = None,
+    redemption_type: Optional[str] = None,
+    validity_upto: Optional[str] = None,
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db), 
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
+):
     query = db.query(models.Offer).filter(models.Offer.is_active == True)
     
     # Filter out expired offers (where valid_until is past)
@@ -1347,18 +1417,83 @@ def get_offers(city: Optional[str] = None, category: Optional[str] = None, skip:
         # Exclude offers already claimed by this user
         claimed_subquery = db.query(models.ClaimedOffer.offer_id).filter(models.ClaimedOffer.user_id == current_user.id)
         query = query.filter(models.Offer.id.notin_(claimed_subquery))
-    if city:
+    
+    if city and city.lower() != 'all':
         query = query.filter(func.lower(models.Offer.city) == func.lower(city))
-    if category:
+    if category and category.lower() != 'all':
         query = query.filter(func.lower(models.Offer.type) == func.lower(category))
-    return query.offset(skip).limit(limit).all()
+    if redemption_type and redemption_type.lower() != 'all':
+        query = query.filter(models.Offer.redemption_type == redemption_type)
+    if stream and stream.lower() != 'all':
+        query = query.filter(
+            or_(
+                models.Offer.target_stream == "All",
+                func.lower(models.Offer.target_stream) == func.lower(stream)
+            )
+        )
+    
+    prof_input = professions or profession
+    if prof_input and prof_input.lower() != 'all':
+        prof_list = [p.strip() for p in prof_input.split(',') if p.strip() and p.strip().lower() != 'all']
+        if prof_list:
+            or_clauses = [models.Offer.target_professions.ilike(f"%{p}%") for p in prof_list]
+            query = query.filter(
+                or_(
+                    models.Offer.target_professions == None,
+                    models.Offer.target_professions == "",
+                    *or_clauses
+                )
+            )
+
+    if validity_upto:
+        try:
+            if 'T' in validity_upto:
+                target_date = datetime.fromisoformat(validity_upto.replace('Z', '+00:00'))
+            else:
+                d = datetime.strptime(validity_upto, "%Y-%m-%d")
+                target_date = datetime(d.year, d.month, d.day, 23, 59, 59)
+            query = query.filter(
+                models.Offer.valid_until != None,
+                models.Offer.valid_until <= target_date
+            )
+        except Exception:
+            pass
+    
+    offers = query.order_by(models.Offer.created_datetime.desc()).offset(skip).limit(limit).all()
+    
+    # Attach available vouchers count for unique_code_pool offers
+    for offer in offers:
+        if offer.redemption_type == 'unique_code_pool':
+            avail = db.query(models.VoucherCodePool).filter(
+                models.VoucherCodePool.offer_id == offer.id,
+                models.VoucherCodePool.is_claimed == False
+            ).count()
+            offer.available_vouchers_count = avail
+    
+    return offers
 
 @app.post("/api/offers/{offer_id}/claim")
-def claim_offer(offer_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+def claim_offer(
+    offer_id: str, 
+    body: Optional[schemas.ClaimOfferRequest] = None,
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    import random, string
+
     offer = db.query(models.Offer).filter(models.Offer.id == offer_id, models.Offer.is_active == True).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found or inactive")
         
+    # Check if expired
+    if offer.valid_until and offer.valid_until < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="This offer has expired")
+
+    # Check total quota
+    if offer.total_quota is not None and (offer.claimed_count or 0) >= offer.total_quota:
+        raise HTTPException(status_code=400, detail="This offer quota has been completely claimed")
+
+    # Check if already claimed by this user
     already_claimed = db.query(models.ClaimedOffer).filter(
         models.ClaimedOffer.user_id == current_user.id,
         models.ClaimedOffer.offer_id == offer.id
@@ -1366,23 +1501,172 @@ def claim_offer(offer_id: str, db: Session = Depends(get_db), current_user: mode
     
     if already_claimed:
         raise HTTPException(status_code=400, detail="Offer already claimed")
+
+    assigned_code = None
+
+    if offer.redemption_type == "unique_code_pool":
+        # Atomically pick an unclaimed voucher code
+        voucher = db.query(models.VoucherCodePool).filter(
+            models.VoucherCodePool.offer_id == offer.id,
+            models.VoucherCodePool.is_claimed == False
+        ).with_for_update().first()
         
-    claimed_offer = models.ClaimedOffer(user_id=current_user.id, offer_id=offer.id)
+        if not voucher:
+            raise HTTPException(status_code=400, detail="Unique voucher codes are temporarily out of stock for this offer")
+            
+        voucher.is_claimed = True
+        voucher.claimed_by_user_id = current_user.id
+        voucher.claimed_at = datetime.utcnow()
+        assigned_code = voucher.code
+
+    elif offer.redemption_type == "in_store_pass":
+        # Generate verifiable in-store digital pass
+        city_prefix = (offer.city[:3].upper() if offer.city else "STU")
+        rand_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        assigned_code = f"PASS-{city_prefix}-{rand_suffix}"
+
+    elif offer.redemption_type == "bank_lead":
+        rand_lead = ''.join(random.choices(string.digits, k=7))
+        assigned_code = f"LEAD-BANK-{rand_lead}"
+
+    elif offer.redemption_type == "affiliate_link":
+        assigned_code = offer.discount_code or "APPLIED"
+
+    else:
+        # Default generic code
+        assigned_code = offer.discount_code or "CLAIMED"
+
+    inquiry_data = body.inquiry_details if body and body.inquiry_details else None
+
+    claimed_offer = models.ClaimedOffer(
+        user_id=current_user.id, 
+        offer_id=offer.id,
+        voucher_code=assigned_code,
+        status="active",
+        inquiry_details=inquiry_data
+    )
+    
+    # Increment claimed count on offer
+    offer.claimed_count = (offer.claimed_count or 0) + 1
+    
     db.add(claimed_offer)
     db.commit()
     db.refresh(claimed_offer)
-    return {"message": "Offer claimed successfully", "discount_code": offer.discount_code}
+    
+    return {
+        "message": "Offer claimed successfully",
+        "voucher_code": assigned_code,
+        "discount_code": assigned_code,
+        "status": "active",
+        "redemption_type": offer.redemption_type
+    }
+
+@app.post("/api/offers/claimed/{claimed_id}/redeem")
+def redeem_claimed_offer(
+    claimed_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    claimed = db.query(models.ClaimedOffer).filter(
+        models.ClaimedOffer.id == claimed_id,
+        models.ClaimedOffer.user_id == current_user.id
+    ).first()
+    if not claimed:
+        raise HTTPException(status_code=404, detail="Claimed offer not found")
+        
+    claimed.status = "redeemed"
+    claimed.redeemed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(claimed)
+    return {"message": "Offer marked as redeemed successfully", "status": "redeemed"}
+
+@app.post("/api/offers/{offer_id}/vouchers/upload")
+def upload_voucher_codes(
+    offer_id: str,
+    payload: schemas.VoucherCodeUpload,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    offer = db.query(models.Offer).filter(models.Offer.id == offer_id).first()
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
+
+    clean_codes = [c.strip() for c in payload.codes if c.strip()]
+    if not clean_codes:
+        raise HTTPException(status_code=400, detail="No valid voucher codes provided")
+
+    new_vouchers = [
+        models.VoucherCodePool(offer_id=offer.id, code=code)
+        for code in clean_codes
+    ]
+    db.add_all(new_vouchers)
+    db.commit()
+    
+    total = db.query(models.VoucherCodePool).filter(models.VoucherCodePool.offer_id == offer.id).count()
+    available = db.query(models.VoucherCodePool).filter(
+        models.VoucherCodePool.offer_id == offer.id,
+        models.VoucherCodePool.is_claimed == False
+    ).count()
+
+    return {
+        "message": f"Successfully added {len(clean_codes)} voucher codes",
+        "total_codes": total,
+        "available_codes": available
+    }
+
+@app.get("/api/offers/{offer_id}/vouchers")
+def get_offer_vouchers(
+    offer_id: str,
+    db: Session = Depends(get_db),
+    admin: str = Depends(auth.get_current_admin)
+):
+    total = db.query(models.VoucherCodePool).filter(models.VoucherCodePool.offer_id == offer_id).count()
+    claimed = db.query(models.VoucherCodePool).filter(
+        models.VoucherCodePool.offer_id == offer_id,
+        models.VoucherCodePool.is_claimed == True
+    ).count()
+    available = total - claimed
+    
+    samples = db.query(models.VoucherCodePool).filter(
+        models.VoucherCodePool.offer_id == offer_id
+    ).limit(20).all()
+
+    return {
+        "total": total,
+        "claimed": claimed,
+        "available": available,
+        "sample_codes": [{"code": s.code, "is_claimed": s.is_claimed, "claimed_at": s.claimed_at} for s in samples]
+    }
 
 @app.get("/api/users/me/claimed-offers", response_model=list[schemas.ClaimedOfferResponse])
 def get_claimed_offers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.ClaimedOffer).filter(models.ClaimedOffer.user_id == current_user.id).offset(skip).limit(limit).all()
+    return db.query(models.ClaimedOffer).filter(
+        models.ClaimedOffer.user_id == current_user.id
+    ).order_by(models.ClaimedOffer.created_datetime.desc()).offset(skip).limit(limit).all()
 
 @app.post("/api/offers", response_model=schemas.Offer)
-def create_offer(offer: schemas.OfferBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    db_offer = models.Offer(**offer.model_dump())
+def create_offer(offer: schemas.OfferCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    offer_data = offer.model_dump()
+    voucher_codes = offer_data.pop("voucher_codes", None)
+    
+    clean_codes = [c.strip() for c in (voucher_codes or []) if c and c.strip()]
+    if offer_data.get("redemption_type") == "unique_code_pool" and clean_codes:
+        offer_data["total_quota"] = len(clean_codes)
+
+    db_offer = models.Offer(**offer_data)
     db.add(db_offer)
     db.commit()
     db.refresh(db_offer)
+
+    if clean_codes and db_offer.redemption_type == "unique_code_pool":
+        new_vouchers = [
+            models.VoucherCodePool(offer_id=db_offer.id, code=code)
+            for code in clean_codes
+        ]
+        db.add_all(new_vouchers)
+        db.commit()
+        db_offer.available_vouchers_count = len(clean_codes)
+
     auth.log_admin_action(db, admin, "CREATE", "Offers", str(db_offer.id))
     return db_offer
 
@@ -1399,20 +1683,42 @@ def delete_offer(offer_id: str, db: Session = Depends(get_db), admin: str = Depe
     return {"status": "Offer soft deleted"}
 
 @app.put("/api/offers/{offer_id}", response_model=schemas.Offer)
-def update_offer(offer_id: str, offer_update: schemas.OfferBase, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+def update_offer(offer_id: str, offer_update: schemas.OfferCreate, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     db_offer = db.query(models.Offer).filter(models.Offer.id == offer_id, models.Offer.is_active == True).first()
     if not db_offer:
         raise HTTPException(status_code=404, detail="Offer not found")
-    for key, value in offer_update.model_dump().items():
+    
+    offer_data = offer_update.model_dump()
+    voucher_codes = offer_data.pop("voucher_codes", None)
+    clean_codes = [c.strip() for c in (voucher_codes or []) if c and c.strip()]
+
+    for key, value in offer_data.items():
         setattr(db_offer, key, value)
+    
+    if clean_codes and db_offer.redemption_type == "unique_code_pool":
+        new_vouchers = [
+            models.VoucherCodePool(offer_id=db_offer.id, code=code)
+            for code in clean_codes
+        ]
+        db.add_all(new_vouchers)
+        db_offer.total_quota = (db_offer.total_quota or 0) + len(clean_codes)
+
     db.commit()
     db.refresh(db_offer)
+
+    if db_offer.redemption_type == 'unique_code_pool':
+        avail = db.query(models.VoucherCodePool).filter(
+            models.VoucherCodePool.offer_id == db_offer.id,
+            models.VoucherCodePool.is_claimed == False
+        ).count()
+        db_offer.available_vouchers_count = avail
+
     auth.log_admin_action(db, admin, "UPDATE", "Offers", offer_id)
     return db_offer
 
 @app.get("/api/admin/claimed-offers", response_model=list[schemas.ClaimedOfferResponse])
 def get_admin_claimed_offers(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
-    return db.query(models.ClaimedOffer).all()
+    return db.query(models.ClaimedOffer).order_by(models.ClaimedOffer.created_datetime.desc()).all()
 
 # Users
 @app.get("/api/users/filters/education")

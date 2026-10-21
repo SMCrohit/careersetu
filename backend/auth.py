@@ -16,6 +16,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
+REFRESH_TOKEN_EXPIRE_DAYS = 90
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/firebase-login")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -23,10 +25,38 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=60*24*7) # 1 week
-    to_encode.update({"exp": expire})
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def verify_refresh_token(token: str, db: Session):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            return None
+        sub = payload.get("sub")
+        if not sub:
+            return None
+        user = db.query(models.User).filter(
+            (models.User.mobile_number == sub) | 
+            (models.User.email == sub)
+        ).first()
+        if user and user.is_active:
+            return user
+        return None
+    except Exception:
+        return None
 
 def resolve_user_from_token(token: str, db: Session):
     # Try Firebase Token first
@@ -35,14 +65,17 @@ def resolve_user_from_token(token: str, db: Session):
         uid = decoded_token.get("uid")
         email = decoded_token.get("email")
         phone_number = decoded_token.get("phone_number")
+        formatted_number = phone_number.replace("+91", "") if phone_number else None
         
-        user = db.query(models.User).filter(
-            (models.User.firebase_uid == uid) | 
-            (models.User.email == email) | 
-            (models.User.mobile_number == phone_number)
-        ).first()
+        user = None
+        if uid:
+            user = db.query(models.User).filter(models.User.firebase_uid == uid).first()
+        if not user and formatted_number:
+            user = db.query(models.User).filter(models.User.mobile_number == formatted_number).first()
+        if not user and email:
+            user = db.query(models.User).filter(models.User.email == email).first()
 
-        if user and not user.firebase_uid:
+        if user and not user.firebase_uid and uid:
             user.firebase_uid = uid
             db.commit()
             
@@ -50,9 +83,11 @@ def resolve_user_from_token(token: str, db: Session):
     except Exception:
         pass
 
-    # Try Custom Legacy JWT (Backward compatibility for Flutter App)
+    # Try Custom Legacy/Standard JWT
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") == "refresh":
+            return None
         sub = payload.get("sub")
         
         user = db.query(models.User).filter(
