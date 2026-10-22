@@ -2905,34 +2905,103 @@ def delete_acquisition_source(source_id: str, db: Session = Depends(get_db), adm
     auth.log_admin_action(db, admin, "DELETE", "AcquisitionSources", source_id)
     return {"message": "Acquisition Source deleted successfully"}
 
+@app.get("/api/settings/staff")
+def get_staff_members(db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    staff_users = db.query(models.User).filter(
+        models.User.role.in_(["admin", "staff", "manager"]),
+        models.User.is_active == True
+    ).order_by(models.User.created_datetime.desc()).all()
+    return [
+        {
+            "id": str(u.id),
+            "full_name": u.full_name,
+            "email": u.email,
+            "mobile_number": u.mobile_number,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_datetime": u.created_datetime.isoformat() if hasattr(u, "created_datetime") and u.created_datetime else None
+        }
+        for u in staff_users
+    ]
+
 @app.post("/api/settings/staff")
 def create_staff(req: schemas.StaffCreateRequest, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
     if req.role not in ["admin", "staff", "manager"]:
         raise HTTPException(status_code=400, detail="Invalid role")
         
+    email_clean = req.email.strip().lower()
+    full_name_clean = req.full_name.strip()
+    
     try:
-        # 1. Create Firebase User
-        fb_user = firebase_auth.create_user(
-            email=req.email,
-            password=req.password,
-            display_name=req.full_name
-        )
-        
-        # 2. Create PostgreSQL User
-        db_user = models.User(
-            email=req.email,
-            full_name=req.full_name,
-            role=req.role,
-            firebase_uid=fb_user.uid
-        )
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        
-        auth.log_admin_action(db, admin, "CREATE", "Staff", str(db_user.id))
-        return {"message": f"{req.role.capitalize()} account created successfully!"}
+        # 1. Check or Create/Update in Firebase Auth
+        fb_user = None
+        try:
+            fb_user = firebase_auth.get_user_by_email(email_clean)
+            update_kwargs = {"display_name": full_name_clean}
+            if req.password and len(req.password) >= 6:
+                update_kwargs["password"] = req.password
+            fb_user = firebase_auth.update_user(fb_user.uid, **update_kwargs)
+        except firebase_auth.UserNotFoundError:
+            try:
+                fb_user = firebase_auth.create_user(
+                    email=email_clean,
+                    password=req.password,
+                    display_name=full_name_clean
+                )
+            except firebase_auth.EmailAlreadyExistsError:
+                fb_user = firebase_auth.get_user_by_email(email_clean)
+                update_kwargs = {"display_name": full_name_clean}
+                if req.password and len(req.password) >= 6:
+                    update_kwargs["password"] = req.password
+                fb_user = firebase_auth.update_user(fb_user.uid, **update_kwargs)
+
+        # 2. Check or Create/Update in PostgreSQL
+        db_user = db.query(models.User).filter(
+            (models.User.email.ilike(email_clean)) | 
+            (models.User.firebase_uid == fb_user.uid)
+        ).first()
+
+        if db_user:
+            db_user.email = email_clean
+            db_user.full_name = full_name_clean
+            db_user.role = req.role
+            db_user.firebase_uid = fb_user.uid
+            db_user.is_active = True
+            db.commit()
+            db.refresh(db_user)
+            auth.log_admin_action(db, admin, "UPDATE", "Staff", str(db_user.id))
+            return {"message": f"{req.role.capitalize()} account updated successfully!", "id": str(db_user.id)}
+        else:
+            db_user = models.User(
+                email=email_clean,
+                full_name=full_name_clean,
+                role=req.role,
+                firebase_uid=fb_user.uid,
+                is_active=True
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            auth.log_admin_action(db, admin, "CREATE", "Staff", str(db_user.id))
+            return {"message": f"{req.role.capitalize()} account created successfully!", "id": str(db_user.id)}
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/settings/staff/{staff_id}")
+def delete_staff(staff_id: str, db: Session = Depends(get_db), admin: str = Depends(auth.get_current_admin)):
+    staff_user = db.query(models.User).filter(models.User.id == staff_id).first()
+    if not staff_user:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    if str(staff_user.id) == admin:
+        raise HTTPException(status_code=400, detail="You cannot remove your own account")
+    
+    # Demote staff and deactivate
+    staff_user.role = "student"
+    staff_user.is_active = False
+    db.commit()
+    auth.log_admin_action(db, admin, "DELETE", "Staff", staff_id)
+    return {"message": "Staff member removed successfully"}
 
 
 import requests

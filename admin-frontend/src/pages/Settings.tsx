@@ -83,12 +83,36 @@ const Settings = () => {
 
   const fetchStaff = async () => {
     try {
-      const response = await api.get('/users'); // Assuming /users returns all users, we filter locally or should use a dedicated endpoint. 
-      // For now we'll filter locally
-      const staff = response.data.filter((u: any) => ['admin', 'manager', 'staff'].includes(u.role));
-      setStaffList(staff);
+      const response = await api.get('/settings/staff');
+      setStaffList(Array.isArray(response.data) ? response.data : (response.data?.data || []));
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDeleteStaff = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to remove ${name || 'this staff member'}?`)) return;
+    try {
+      await api.delete(`/settings/staff/${id}`);
+      showToast('Staff member removed successfully', 'success');
+      fetchStaff();
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.response?.data?.detail || 'Failed to remove staff member', 'error');
+    }
+  };
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStaffError('');
+    try {
+      const res = await api.post('/settings/staff', staffForm);
+      showToast(res.data?.message || 'Staff created successfully', 'success');
+      setIsStaffModalOpen(false);
+      setStaffForm({ full_name: '', email: '', password: '', role: 'staff' });
+      fetchStaff();
+    } catch (err: any) {
+      setStaffError(err.response?.data?.detail || 'Failed to create staff');
     }
   };
 
@@ -116,19 +140,6 @@ const Settings = () => {
       setSources(response.data);
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const handleCreateStaff = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStaffError('');
-    try {
-      await api.post('/settings/staff', staffForm);
-      setIsStaffModalOpen(false);
-      setStaffForm({ full_name: '', email: '', password: '', role: 'staff' });
-      fetchStaff();
-    } catch (err: any) {
-      setStaffError(err.response?.data?.detail || 'Failed to create staff');
     }
   };
 
@@ -405,20 +416,45 @@ const Settings = () => {
                   <th className="px-6 py-4 font-medium text-secondaryText">Name</th>
                   <th className="px-6 py-4 font-medium text-secondaryText">Email</th>
                   <th className="px-6 py-4 font-medium text-secondaryText">Role</th>
+                  <th className="px-6 py-4 font-medium text-secondaryText text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-borderDark">
-                {staffList.map((staff) => (
-                  <tr key={staff.id} className="hover:bg-background/50 transition-colors">
-                    <td className="px-6 py-4 text-primaryText font-medium">{staff.full_name}</td>
-                    <td className="px-6 py-4 text-secondaryText">{staff.email}</td>
-                    <td className="px-6 py-4">
-                      <span className="px-2 py-1 bg-primaryBrand/10 text-primaryBrand rounded-full text-xs font-medium uppercase tracking-wider">
-                        {staff.role}
-                      </span>
+                {staffList.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-8 text-center text-secondaryText">
+                      No staff members found. Click "Add Staff" to create or assign staff.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  staffList.map((staff) => (
+                    <tr key={staff.id} className="hover:bg-background/50 transition-colors">
+                      <td className="px-6 py-4 text-primaryText font-medium">{staff.full_name || '—'}</td>
+                      <td className="px-6 py-4 text-secondaryText">{staff.email || '—'}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                          staff.role === 'admin'
+                            ? 'bg-purple-100 text-purple-700'
+                            : staff.role === 'manager'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {staff.role}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStaff(staff.id, staff.full_name)}
+                          className="text-error hover:bg-error/10 p-1.5 rounded transition-colors inline-flex items-center"
+                          title="Remove Staff"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
