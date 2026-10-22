@@ -1,7 +1,8 @@
 {
   "functions": {
-    "api/**/*.py": {
-      "excludeFiles": "{android/**,ios/**,build/**,lib/**,.dart_tool/**,admin-frontend/**}"
+    "api/index.py": {
+      "includeFiles": "backend/**",
+      "excludeFiles": "{android/**,ios/**,build/**,lib/**,.dart_tool/**,admin-frontend/**,assets/**,test/**}"
     }
   },
   "rewrites": [

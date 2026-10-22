@@ -1,19 +1,19 @@
 # Mobile and Flutter build artifacts
-build/
-android/
-ios/
-lib/
-test/
-assets/
-.dart_tool/
-.idea/
-.flutter-plugins-dependencies
+/build/
+/android/
+/ios/
+/lib/
+/test/
+/assets/
+/.dart_tool/
+/.idea/
+/.flutter-plugins-dependencies
 
-# Frontend source and dependencies (served from dist)
-admin-frontend/node_modules/
+# Frontend node_modules
+/admin-frontend/node_modules/
 
 # Python virtual environments & bytecode
-backend/venv/
+/backend/venv/
 **/__pycache__/
 *.pyc
 

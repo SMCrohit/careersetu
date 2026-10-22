@@ -5,16 +5,24 @@ import autoTable from 'jspdf-autotable';
 import { 
   Briefcase, FileText, Calendar, 
   ExternalLink, Mail,
-  XCircle, Download, FileUp, Filter, FileSpreadsheet, FileDown, ChevronDown
+  XCircle, Download, FileUp, Filter, FileSpreadsheet, FileDown, ChevronDown,
+  User, MapPin, Award, AlertCircle
 } from 'lucide-react';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
 import { DataTable, type Column } from '../components/DataTable';
 
 interface Applicant {
+  id?: string;
   full_name: string;
   email: string;
   mobile_number: string;
+  whatsapp_number?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  education?: any;
+  skills?: string[] | null;
 }
 
 interface JobInfo {
@@ -351,6 +359,20 @@ const AppliedJobs = () => {
       )
     },
     {
+      header: 'Resume',
+      cell: (app) => (
+        app.has_resume ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <FileText size={12} className="text-emerald-600" /> Uploaded
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
+            <XCircle size={12} className="text-gray-400" /> No Resume
+          </span>
+        )
+      )
+    },
+    {
       header: 'Applied On',
       accessorKey: 'applied_datetime',
       sortable: true,
@@ -649,30 +671,33 @@ const AppliedJobs = () => {
               <div className="bg-white p-5 rounded-xl border border-border shadow-sm space-y-6">
                 <h3 className="text-sm font-bold text-primaryText uppercase tracking-wider border-b border-border pb-2">Candidate Submission</h3>
                 
-                {/* Resume */}
+                {/* Resume Section */}
                 <div>
-                  <h4 className="text-sm font-semibold text-primaryText mb-2 flex items-center gap-2"><FileText size={16} className="text-blue-500"/> Resume</h4>
-                  {selectedApp.has_resume || selectedApp.resume_snapshot_url ? (
+                  <h4 className="text-sm font-semibold text-primaryText mb-2 flex items-center gap-2">
+                    <FileText size={16} className="text-blue-500"/> Resume
+                  </h4>
+
+                  {selectedApp.has_resume ? (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-3 p-3 bg-backgroundLight rounded-lg border border-border">
-                        <FileText size={28} className="text-red-500 shrink-0" />
+                      <div className="flex items-center gap-3 p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
+                        <FileText size={28} className="text-emerald-600 shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-primaryText truncate">
+                          <p className="text-sm font-semibold text-emerald-950 truncate">
                             {selectedApp.resume_filename || `${selectedApp.applicant.full_name || 'applicant'}_resume.pdf`}
                           </p>
-                          <p className="text-xs text-secondaryText">
+                          <p className="text-xs text-emerald-700">
                             {selectedApp.resume_source === 'profile'
-                              ? "Candidate's current profile resume"
-                              : "Submitted with this application"}
+                              ? "Candidate's uploaded profile resume"
+                              : "Uploaded & submitted with this application"}
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => openResume(selectedApp, 'view')}
                           disabled={resumeLoading !== null}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-primaryBrand text-white rounded-lg text-sm font-medium hover:bg-primaryBrand/90 transition-colors disabled:opacity-60 shadow-sm"
                         >
                           <ExternalLink size={16} /> {resumeLoading === 'view' ? 'Opening…' : 'View Resume'}
                         </button>
@@ -680,14 +705,73 @@ const AppliedJobs = () => {
                           type="button"
                           onClick={() => openResume(selectedApp, 'download')}
                           disabled={resumeLoading !== null}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-100 disabled:opacity-60"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border border-blue-200 disabled:opacity-60"
                         >
-                          <Download size={16} /> {resumeLoading === 'download' ? 'Downloading…' : 'Download Submitted Resume'}
+                          <Download size={16} /> {resumeLoading === 'download' ? 'Downloading…' : 'Download Resume'}
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-secondaryText italic">No resume attached. The candidate hasn't uploaded one to their profile.</p>
+                    <div className="space-y-4">
+                      <div className="flex items-start gap-3 p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900">
+                        <AlertCircle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-amber-900">No Resume Uploaded</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            The candidate did not upload a resume file with this application. Review their registered student profile information below.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Student Profile Info Preview Card */}
+                      <div className="p-4 bg-backgroundLight rounded-xl border border-border space-y-3">
+                        <div className="flex items-center justify-between border-b border-border pb-2">
+                          <span className="text-xs font-bold text-secondaryText uppercase tracking-wider flex items-center gap-1.5">
+                            <User size={14} className="text-primaryBrand" /> Candidate Profile Details
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <span className="text-xs text-secondaryText block">Full Name</span>
+                            <span className="font-semibold text-primaryText">{selectedApp.applicant.full_name || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-secondaryText block">Email Address</span>
+                            <span className="font-medium text-primaryText">{selectedApp.applicant.email || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-secondaryText block">Mobile Number</span>
+                            <span className="font-medium text-primaryText">{selectedApp.applicant.mobile_number || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-secondaryText block">WhatsApp Number</span>
+                            <span className="font-medium text-primaryText">{selectedApp.applicant.whatsapp_number || '—'}</span>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-xs text-secondaryText block">Location</span>
+                            <span className="font-medium text-primaryText flex items-center gap-1 mt-0.5">
+                              <MapPin size={13} className="text-secondaryText" />
+                              {[selectedApp.applicant.city, selectedApp.applicant.state, selectedApp.applicant.country].filter(Boolean).join(', ') || 'Not specified'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {selectedApp.applicant.skills && selectedApp.applicant.skills.length > 0 && (
+                          <div className="pt-2 border-t border-border">
+                            <span className="text-xs text-secondaryText block mb-1.5 flex items-center gap-1">
+                              <Award size={12} className="text-primaryBrand" /> Key Skills
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {selectedApp.applicant.skills.map((skill: string, sIdx: number) => (
+                                <span key={sIdx} className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-xs font-medium">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 

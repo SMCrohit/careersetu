@@ -4,7 +4,8 @@ import json
 import os
 import re
 
-import httpx
+import asyncio
+import requests
 from pypdf import PdfReader
 
 MAX_RESUME_TEXT_CHARS = 15000
@@ -61,36 +62,39 @@ Copy each job's responsibility/achievement lines into "bullets" as written. For 
 """
 
 
+def _sync_openai_call(api_key: str, messages: list, temperature: float, timeout: float):
+    return requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        },
+        json={
+            "model": "gpt-4o-mini",
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+            "temperature": temperature
+        },
+        timeout=timeout
+    )
+
+
 async def openai_json(messages: list, temperature: float = 0.3, timeout: float = 45.0) -> dict:
     """Calls gpt-4o-mini in JSON mode and returns the parsed object. Raises ResumeAIError on failure."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ResumeAIError(503, "AI service is not configured on the server.")
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}"
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "response_format": {"type": "json_object"},
-                    "messages": messages,
-                    "temperature": temperature
-                },
-                timeout=timeout
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
-        except httpx.TimeoutException:
-            raise ResumeAIError(502, "AI took too long to respond. Please try again.")
-        except (httpx.HTTPError, KeyError, ValueError) as e:
-            print(f"OpenAI call failed: {e}")
-            raise ResumeAIError(502, "AI couldn't respond right now. Please try again.")
+    try:
+        response = await asyncio.to_thread(_sync_openai_call, api_key, messages, temperature, timeout)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        data = json.loads(content)
+    except requests.Timeout:
+        raise ResumeAIError(502, "AI took too long to respond. Please try again.")
+    except (requests.RequestException, KeyError, ValueError) as e:
+        print(f"OpenAI call failed: {e}")
+        raise ResumeAIError(502, "AI couldn't respond right now. Please try again.")
 
     if not isinstance(data, dict):
         raise ResumeAIError(502, "AI couldn't respond right now. Please try again.")

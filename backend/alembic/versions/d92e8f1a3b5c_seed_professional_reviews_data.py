@@ -1,3 +1,4 @@
+
 """seed professional reviews data
 
 Revision ID: d92e8f1a3b5c
@@ -18,18 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Seed reviews and backfill applied job resumes in production."""
-    try:
-        from seed_reviews import seed_if_needed
-        seed_if_needed(min_count=15)
-    except Exception as e:
-        print(f"Notice: Review seeding during migration skipped or handled: {e}")
-
-    try:
-        from backfill_resumes import backfill_if_needed
-        backfill_if_needed()
-    except Exception as e:
-        print(f"Notice: Resume backfill during migration skipped or handled: {e}")
+    """Seed reviews and backfill applied job resumes in production (completed)."""
+    pass
 
 
 def downgrade() -> None:

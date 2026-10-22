@@ -44,36 +44,24 @@ except ValueError:
     except Exception as e:
         print(f"CRITICAL ERROR INITIALIZING FIREBASE: {e}")
 
+# Run Alembic upgrade head programmatically (local / VM environments only)
+if not os.getenv("VERCEL"):
+    try:
+        import alembic.config
+        alembicArgs = ['--raiseerr', 'upgrade', 'head']
+        original_cwd = os.getcwd()
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        os.chdir(backend_dir)
+        try:
+            alembic.config.main(argv=alembicArgs)
+        finally:
+            os.chdir(original_cwd)
+    except Exception as e:
+        print(f"Notice: Alembic skipped on startup: {e}")
+
 try:
-    import alembic.config
-    import os
-    
-    # Run Alembic upgrade head programmatically
-    alembicArgs = ['--raiseerr', 'upgrade', 'head']
-    original_cwd = os.getcwd()
-    # Ensure we are in the backend directory so alembic.ini is found
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(backend_dir)
-    try:
-        alembic.config.main(argv=alembicArgs)
-    finally:
-        os.chdir(original_cwd)
-
-    # Ensure professional reviews exist in production
-    try:
-        from seed_reviews import seed_if_needed
-        seed_if_needed(min_count=15)
-    except Exception as seed_err:
-        print(f"Notice: Automatic review check skipped: {seed_err}")
-
-    # Ensure applied job resumes are backfilled with valid snapshots in production
-    try:
-        from backfill_resumes import backfill_if_needed
-        backfill_if_needed()
-    except Exception as bf_err:
-        print(f"Notice: Automatic resume backfill check skipped: {bf_err}")
-
     # Database initialization is now handled externally/via migrations
+    pass
 except Exception as e:
     print(f"CRITICAL ERROR INITIALIZING DATABASE ON STARTUP: {e}")
 
@@ -325,7 +313,7 @@ def get_all_companies(db: Session = Depends(get_db)):
     return [c[0] for c in companies if c[0]]
 
 def _application_resume(app: models.JobApplication):
-    """The resume for an application: the copy saved when applying, else the applicant's current profile resume, else auto-generated ATS resume."""
+    """Returns the uploaded resume for an application: snapshot saved when applying, or current profile resume."""
     snapshot = app.resume_snapshot if isinstance(app.resume_snapshot, dict) else None
     if snapshot and snapshot.get("data"):
         return snapshot, "submitted"
@@ -333,48 +321,20 @@ def _application_resume(app: models.JobApplication):
     current = profile.resume_data if profile and isinstance(profile.resume_data, dict) else None
     if current and current.get("data"):
         return current, "profile"
-    
-    # Auto-generate ATS resume if neither snapshot nor profile resume exists
-    try:
-        import base64
-        from applicant_resume_generator import generate_applicant_resume_pdf
-        pdf_bytes = generate_applicant_resume_pdf(app)
-        candidate_name = ""
-        if profile and profile.user and profile.user.full_name:
-            candidate_name = re.sub(r'[^A-Za-z0-9_ -]', '', profile.user.full_name).strip().replace(' ', '_')
-        fname = f"{candidate_name or 'applicant'}_resume.pdf"
-        b64_data = base64.b64encode(pdf_bytes).decode("utf-8")
-        generated_snap = {
-            "filename": fname,
-            "data": b64_data,
-        }
-        return generated_snap, "submitted"
-    except Exception as e:
-        logger.error(f"Error generating fallback resume: {e}")
-        return None, None
+    return None, None
 
 def _application_resume_info(app: models.JobApplication) -> dict:
-    snapshot = app.resume_snapshot if isinstance(app.resume_snapshot, dict) else None
-    if snapshot and snapshot.get("data"):
+    resume, source = _application_resume(app)
+    if resume and resume.get("data"):
         return {
             "has_resume": True,
-            "resume_filename": snapshot.get("filename") or "resume.pdf",
-            "resume_source": "submitted",
+            "resume_filename": resume.get("filename") or "resume.pdf",
+            "resume_source": source or "submitted",
         }
-    profile = app.student_profile
-    current = profile.resume_data if profile and isinstance(profile.resume_data, dict) else None
-    if current and current.get("data"):
-        return {
-            "has_resume": True,
-            "resume_filename": current.get("filename") or "resume.pdf",
-            "resume_source": "profile",
-        }
-    user = profile.user if profile else None
-    cand_name = re.sub(r'[^A-Za-z0-9_ -]', '', user.full_name if user and user.full_name else 'applicant').strip().replace(' ', '_')
     return {
-        "has_resume": True,
-        "resume_filename": f"{cand_name or 'applicant'}_resume.pdf",
-        "resume_source": "submitted",
+        "has_resume": False,
+        "resume_filename": None,
+        "resume_source": None,
     }
 
 @app.get("/api/job-applications/{app_id}/resume")
@@ -479,9 +439,16 @@ def get_all_job_applications(
         results.append({
             "id": str(app.id),
             "applicant": {
+                "id": str(user.id) if user else None,
                 "full_name": user.full_name if user else "Unknown",
                 "email": user.email if user else None,
                 "mobile_number": user.mobile_number if user else None,
+                "whatsapp_number": sp.whatsapp_number if sp else None,
+                "city": sp.city if sp else None,
+                "state": sp.state if sp else None,
+                "country": sp.country if sp else "India",
+                "education": (sp.resume_data.get("education_history") or sp.resume_data.get("education")) if sp and isinstance(sp.resume_data, dict) else None,
+                "skills": (sp.resume_data.get("skills_found") or sp.resume_data.get("skills")) if sp and isinstance(sp.resume_data, dict) else None,
             },
             "job": {
                 "title": job.title if job else "Unknown",
@@ -2302,24 +2269,6 @@ def apply_for_job(app_req: schemas.JobApplicationCreate, db: Session = Depends(g
     resume_snapshot = None
     if resume.get("data"):
         resume_snapshot = {"filename": resume.get("filename") or "resume.pdf", "data": resume["data"]}
-    else:
-        try:
-            import base64
-            from applicant_resume_generator import generate_applicant_resume_pdf
-            temp_app = models.JobApplication(
-                student_profile=profile,
-                job=job,
-                screening_responses=app_req.screening_responses or {},
-                cover_letter=cover_letter,
-            )
-            pdf_bytes = generate_applicant_resume_pdf(temp_app)
-            cand_name = re.sub(r'[^A-Za-z0-9_ -]', '', current_user.full_name or '').strip().replace(' ', '_')
-            resume_snapshot = {
-                "filename": f"{cand_name or 'applicant'}_resume.pdf",
-                "data": base64.b64encode(pdf_bytes).decode("utf-8")
-            }
-        except Exception as e:
-            logger.error(f"Failed to auto-generate snapshot on apply: {e}")
 
     application = models.JobApplication(
         student_profile_id=profile.id,
@@ -2761,7 +2710,6 @@ def admin_get_all_test_attempts(
     return {"data": result, "total": total}
 
 
-import httpx
 import json
 
 @app.post("/api/resume/analyze", response_model=schemas.ResumeAnalyzeResponse)
