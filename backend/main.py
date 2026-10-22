@@ -1251,8 +1251,11 @@ def get_professionals(
         query = query.filter(models.Professional.profession == profession)
     if group == "doctor":
         query = query.filter(func.lower(models.Professional.profession) == "doctor")
+    elif group == "agency":
+        query = query.filter(func.lower(models.Professional.profession) == "agency")
     elif group == "non_doctor":
-        query = query.filter(func.lower(func.coalesce(models.Professional.profession, "")) != "doctor")
+        query = query.filter(func.lower(func.coalesce(models.Professional.profession, "")) != "doctor") \
+                     .filter(func.lower(func.coalesce(models.Professional.profession, "")) != "agency")
     city = city or location_city
     if city and city != "All":
         query = query.filter(models.Professional.location_city == city)

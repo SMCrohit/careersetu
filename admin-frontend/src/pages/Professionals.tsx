@@ -414,6 +414,7 @@ const Professionals = () => {
                       <option value="Professor">Professor</option>
                       <option value="Lawyer">Lawyer</option>
                       <option value="Consultant">Consultant</option>
+                      <option value="Agency">Agency</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
@@ -497,6 +498,7 @@ const Professionals = () => {
                       <option value="Professor">Professor</option>
                       <option value="Lawyer">Lawyer</option>
                       <option value="Consultant">Consultant</option>
+                      <option value="Agency">Agency</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>

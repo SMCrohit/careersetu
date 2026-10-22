@@ -30,10 +30,11 @@ class ProfessionalFilterOptions {
   });
 }
 
-/// 'doctor' (Health & Wellness) or 'non_doctor' (Professionals).
+/// 'doctor' (Health & Wellness), 'non_doctor' (Professionals), or 'agency' (Startup Agencies).
 enum ProfessionalGroup {
   doctor('doctor'),
-  nonDoctor('non_doctor');
+  nonDoctor('non_doctor'),
+  agency('agency');
 
   final String api;
   const ProfessionalGroup(this.api);

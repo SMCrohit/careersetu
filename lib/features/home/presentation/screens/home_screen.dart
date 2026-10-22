@@ -386,6 +386,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   },
                 ),
 
+                // Startup & Growth Agencies Card
+                CategoryPromoCard(
+                  title: 'Startup & Growth Agencies',
+                  subtitle: 'Book agencies for DPIIT registration, legal docs, pitch decks & scaling.',
+                  badgeText: 'Verified Agencies',
+                  badgeIcon: Icons.rocket_launch_rounded,
+                  imageAsset: 'assets/images/agency_banner.jpg',
+                  buttonText: 'See All Agencies',
+                  themeColor: const Color(0xFF7C3AED),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfessionalListingsScreen(
+                          group: ProfessionalGroup.agency,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
                 const SizedBox(height: 20),
               ],
             ),

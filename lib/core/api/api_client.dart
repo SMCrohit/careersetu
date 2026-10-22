@@ -24,10 +24,13 @@ class ApiClient {
   static String get baseUrl {
     return kReleaseMode 
         ? 'https://careersetu-smc.vercel.app/api' 
-        : (dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.11:8000/api');
+        : (dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.7:8000/api');
   }
 
   ApiClient() {
+    if (kDebugMode) {
+      debugPrint('[ApiClient] Using API Base URL: $baseUrl');
+    }
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,

@@ -9,7 +9,7 @@ class AppUrls {
     }
 
     // 2. Derive dynamically from API_BASE_URL as per environment
-    final apiBase = dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.11:8000/api';
+    final apiBase = dotenv.env['API_BASE_URL'] ?? 'http://192.168.1.7:8000/api';
     final uri = Uri.tryParse(apiBase);
     if (uri != null) {
       // In local/LAN development, Vite frontend typically runs on port 5173
@@ -20,7 +20,7 @@ class AppUrls {
       return '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
     }
 
-    return 'http://192.168.1.11:5173';
+    return 'http://192.168.1.7:5173';
   }
 
   static String get termsAndConditionsUrl => '$webFrontendBaseUrl/terms';

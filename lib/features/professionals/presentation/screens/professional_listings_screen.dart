@@ -63,7 +63,11 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
   }
 
   Future<void> _openFilters(ProfessionalFilterState current) async {
-    final result = await ProfessionalFilterSheet.show(context, current, showProfession: widget.group != ProfessionalGroup.doctor);
+    final result = await ProfessionalFilterSheet.show(
+      context,
+      current,
+      showProfession: widget.group != ProfessionalGroup.doctor && widget.group != ProfessionalGroup.agency,
+    );
     if (result != null) ref.read(professionalFiltersProvider.notifier).update(result);
   }
 
@@ -76,6 +80,7 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
   String get _title => switch (widget.group) {
         ProfessionalGroup.doctor => 'Doctors',
         ProfessionalGroup.nonDoctor => 'Professionals',
+        ProfessionalGroup.agency => 'Startup Agencies',
         null => 'Find a professional',
       };
 
@@ -170,7 +175,11 @@ class _ProfessionalListingsScreenState extends ConsumerState<ProfessionalListing
                 textInputAction: TextInputAction.search,
                 style: AppText.body,
                 decoration: InputDecoration(
-                  hintText: 'Search name, specialty, clinic…',
+                  hintText: switch (widget.group) {
+                    ProfessionalGroup.doctor => 'Search doctor, specialty, clinic…',
+                    ProfessionalGroup.agency => 'Search agency, service, city…',
+                    _ => 'Search name, specialty, firm…',
+                  },
                   hintStyle: AppText.label.copyWith(fontSize: 14),
                   prefixIcon: const Icon(Icons.search_rounded, color: AppUi.accent),
                   suffixIcon: _searchController.text.isEmpty
